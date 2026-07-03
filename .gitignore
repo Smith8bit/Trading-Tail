@@ -12,6 +12,7 @@
 
 # Package Files #
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear
@@ -25,3 +26,42 @@ replay_pid*
 
 # Kotlin Gradle plugin data, see https://kotlinlang.org/docs/whatsnew20.html#new-directory-for-kotlin-data-in-gradle-projects
 .kotlin/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.properties
+local.properties
+
+# Android
+*.apk
+*.aab
+*.dex
+.cxx/
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+
+# AI assistants / tooling
+# NOTE: .claude/ (trailing slash) ignores the local Claude Code dir only —
+# it deliberately does NOT match .claude-plugin/ or plugins/ (marketplace content, keep tracked).
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.claude.json
+.mcp.json
+.cursor/
+.cursorrules
+.cursorignore
+.aider*
+.continue/
+.windsurf/
+.windsurfrules
+.codeium/
+.github/copilot-instructions.md
+GEMINI.md
+.gemini/
