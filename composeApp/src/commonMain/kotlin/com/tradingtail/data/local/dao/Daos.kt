@@ -21,6 +21,9 @@ interface ExecutionDao {
 
     @Query("SELECT * FROM executions ORDER BY timestamp, id")
     suspend fun all(): List<ExecutionEntity>
+
+    @Query("DELETE FROM executions WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 }
 
 @Dao

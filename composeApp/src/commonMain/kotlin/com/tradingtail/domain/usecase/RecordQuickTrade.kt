@@ -25,7 +25,8 @@ class RecordQuickTrade(
         exitPrice: BigDecimal,
         entryTimestamp: Long,
         exitTimestamp: Long,
-        fees: BigDecimal = ZERO,
+        entryFees: BigDecimal = ZERO,
+        exitFees: BigDecimal = ZERO,
         instrumentType: InstrumentType = InstrumentType.STOCK,
     ) {
         val (entrySide, exitSide) = when (direction) {
@@ -34,11 +35,11 @@ class RecordQuickTrade(
         }
         val entry = ExecutionValidator.validate(
             symbol, entrySide, entryPrice, quantity, entryTimestamp,
-            ExecutionSource.MANUAL, fees, instrumentType,
+            ExecutionSource.MANUAL, entryFees, instrumentType,
         )
         val exit = ExecutionValidator.validate(
             entry.symbol, exitSide, exitPrice, quantity, exitTimestamp,
-            ExecutionSource.MANUAL, ZERO, instrumentType,
+            ExecutionSource.MANUAL, exitFees, instrumentType,
         )
         executions.addAll(listOf(entry, exit))
         rebuildTrades(entry.symbol)

@@ -4,6 +4,8 @@ import com.tradingtail.data.local.TradeDatabase
 import com.tradingtail.data.repository.ExecutionRepository
 import com.tradingtail.data.repository.TradeRepository
 import com.tradingtail.domain.usecase.BuildTradesFromExecutions
+import com.tradingtail.domain.usecase.CalculateCalendarPnl
+import com.tradingtail.domain.usecase.DeleteTrade
 import com.tradingtail.domain.usecase.RebuildTradesForSymbol
 import com.tradingtail.domain.usecase.RecordQuickTrade
 
@@ -18,4 +20,6 @@ class AppModule(db: TradeDatabase) {
 
     private val rebuild = RebuildTradesForSymbol(executionRepo, tradeRepo, BuildTradesFromExecutions())
     val recordQuickTrade = RecordQuickTrade(executionRepo, rebuild)
+    val deleteTrade = DeleteTrade(executionRepo, rebuild)
+    val calculateCalendarPnl = CalculateCalendarPnl()
 }

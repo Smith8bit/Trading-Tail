@@ -41,7 +41,8 @@ class QuickTradeEntryViewModel(private val record: RecordQuickTrade) {
         exitPrice: String,
         entryTimestamp: String,
         exitTimestamp: String,
-        fees: String,
+        entryFees: String,
+        exitFees: String,
     ): Result<Unit> = runCatching {
         record(
             symbol = symbol,
@@ -51,7 +52,8 @@ class QuickTradeEntryViewModel(private val record: RecordQuickTrade) {
             exitPrice = bigDecimal(exitPrice.trim()),
             entryTimestamp = parseBangkok(entryTimestamp),
             exitTimestamp = parseBangkok(exitTimestamp),
-            fees = if (fees.isBlank()) ZERO else bigDecimal(fees.trim()),
+            entryFees = if (entryFees.isBlank()) ZERO else bigDecimal(entryFees.trim()),
+            exitFees = if (exitFees.isBlank()) ZERO else bigDecimal(exitFees.trim()),
         )
     }
 }
@@ -66,7 +68,8 @@ fun QuickTradeEntryScreen(vm: QuickTradeEntryViewModel, modifier: Modifier = Mod
     // date/time picker later — no picker lib is pulled in for Stage 1.
     var entryTs by remember { mutableStateOf(formatBangkok(nowMillis() - 3_600_000)) }
     var exitTs by remember { mutableStateOf(formatBangkok(nowMillis())) }
-    var fees by remember { mutableStateOf("") }
+    var entryFees by remember { mutableStateOf("") }
+    var exitFees by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
@@ -84,15 +87,17 @@ fun QuickTradeEntryScreen(vm: QuickTradeEntryViewModel, modifier: Modifier = Mod
         Field(exitPrice, { exitPrice = it }, "Exit price")
         Field(entryTs, { entryTs = it }, "Entry time (Bangkok, yyyy-MM-dd HH:mm)")
         Field(exitTs, { exitTs = it }, "Exit time (Bangkok, yyyy-MM-dd HH:mm)")
-        Field(fees, { fees = it }, "Fees (optional)")
+        Field(entryFees, { entryFees = it }, "Entry fee (optional)")
+        Field(exitFees, { exitFees = it }, "Exit fee (optional)")
 
         Button(
             onClick = {
                 scope.launch {
-                    val result = vm.submit(symbol, quantity, entryPrice, exitPrice, entryTs, exitTs, fees)
+                    val result = vm.submit(symbol, quantity, entryPrice, exitPrice, entryTs, exitTs, entryFees, exitFees)
                     status = result.fold(
                         onSuccess = {
-                            symbol = ""; quantity = ""; entryPrice = ""; exitPrice = ""; fees = ""
+                            symbol = ""; quantity = ""; entryPrice = ""; exitPrice = ""
+                            entryFees = ""; exitFees = ""
                             "Saved ✓"
                         },
                         onFailure = { it.message ?: "Invalid input" },

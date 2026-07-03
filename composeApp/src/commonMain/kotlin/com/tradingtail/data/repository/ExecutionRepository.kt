@@ -9,4 +9,5 @@ class ExecutionRepository(private val dao: ExecutionDao) {
     suspend fun addAll(executions: List<ExecutionEntity>): List<Long> = dao.insertAll(executions)
     suspend fun bySymbol(symbol: String): List<ExecutionEntity> = dao.bySymbol(symbol)
     suspend fun all(): List<ExecutionEntity> = dao.all()
+    suspend fun deleteByIds(ids: List<Long>) = dao.deleteByIds(ids)
 }

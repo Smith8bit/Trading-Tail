@@ -13,12 +13,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.tradingtail.ui.calendar.CalendarScreen
+import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.journal.JournalScreen
+import com.tradingtail.ui.journal.JournalViewModel
 import com.tradingtail.ui.tradeentry.QuickTradeEntryScreen
 import com.tradingtail.ui.tradeentry.QuickTradeEntryViewModel
 
 private enum class Screen(val label: String) {
     Journal("Journal"),
+    Calendar("Calendar"),
     Quick("Quick Entry"),
 }
 
@@ -30,7 +34,9 @@ private enum class Screen(val label: String) {
 fun App(module: AppModule) {
     MaterialTheme {
         var screen by remember { mutableStateOf(Screen.Journal) }
+        val journalVm = remember { JournalViewModel(module.tradeRepo, module.deleteTrade) }
         val quickVm = remember { QuickTradeEntryViewModel(module.recordQuickTrade) }
+        val calendarVm = remember { CalendarViewModel(module.tradeRepo, module.calculateCalendarPnl) }
 
         Scaffold(
             bottomBar = {
@@ -48,7 +54,8 @@ fun App(module: AppModule) {
         ) { padding ->
             Surface(modifier = Modifier.padding(padding)) {
                 when (screen) {
-                    Screen.Journal -> JournalScreen(module.tradeRepo)
+                    Screen.Journal -> JournalScreen(journalVm)
+                    Screen.Calendar -> CalendarScreen(calendarVm)
                     Screen.Quick -> QuickTradeEntryScreen(quickVm)
                 }
             }
