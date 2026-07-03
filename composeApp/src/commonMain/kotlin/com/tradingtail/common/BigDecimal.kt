@@ -15,3 +15,7 @@ expect class BigDecimal : Comparable<BigDecimal> {
 expect fun bigDecimal(value: String): BigDecimal
 expect fun bigDecimal(value: Int): BigDecimal
 expect val ZERO: BigDecimal
+
+/** ponytail: epoch-millis clock — commonMain can't see System.currentTimeMillis(). Swap for
+ * kotlinx-datetime Clock only if calendar math is needed. Used to prefill entry-form timestamps. */
+expect fun nowMillis(): Long

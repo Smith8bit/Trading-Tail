@@ -6,6 +6,7 @@ import androidx.room.Query
 import com.tradingtail.data.local.entity.ExecutionEntity
 import com.tradingtail.data.local.entity.TagEntity
 import com.tradingtail.data.local.entity.TradeEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ExecutionDao {
@@ -32,6 +33,10 @@ interface TradeDao {
 
     @Query("SELECT * FROM trades ORDER BY exitTimestamp DESC")
     suspend fun all(): List<TradeEntity>
+
+    // Reactive journal feed — re-emits whenever the matcher rewrites the trades table.
+    @Query("SELECT * FROM trades ORDER BY exitTimestamp DESC")
+    fun allFlow(): Flow<List<TradeEntity>>
 }
 
 @Dao
