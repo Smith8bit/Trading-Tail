@@ -10,6 +10,7 @@ expect class BigDecimal : Comparable<BigDecimal> {
     fun add(other: BigDecimal): BigDecimal
     fun subtract(other: BigDecimal): BigDecimal
     fun multiply(other: BigDecimal): BigDecimal
+    fun toFloat(): Float // display-only (bar-length ratios) — never for money arithmetic
 }
 
 expect fun bigDecimal(value: String): BigDecimal

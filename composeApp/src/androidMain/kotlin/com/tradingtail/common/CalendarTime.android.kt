@@ -13,6 +13,9 @@ actual fun bkkDate(epochMillis: Long): BkkDate {
     return BkkDate(d.year, d.monthValue, d.dayOfMonth)
 }
 
+actual fun bkkHour(epochMillis: Long): Int =
+    Instant.ofEpochMilli(epochMillis).atZone(BANGKOK).hour
+
 actual fun currentYearMonth(): YearMonth {
     val d = LocalDate.now(BANGKOK)
     return YearMonth(d.year, d.monthValue)

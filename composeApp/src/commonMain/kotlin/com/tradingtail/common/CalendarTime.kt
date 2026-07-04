@@ -12,6 +12,9 @@ data class YearMonth(val year: Int, val month: Int) {
 /** The Bangkok-local calendar day an epoch-millis instant falls on. */
 expect fun bkkDate(epochMillis: Long): BkkDate
 
+/** The Bangkok-local hour (0-23) an epoch-millis instant falls on. */
+expect fun bkkHour(epochMillis: Long): Int
+
 /** Current Bangkok-local month, for the calendar's initial view. */
 expect fun currentYearMonth(): YearMonth
 
