@@ -1,35 +1,53 @@
 package com.tradingtail
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tradingtail.ui.analytics.AnalyticsScreen
 import com.tradingtail.ui.analytics.AnalyticsViewModel
@@ -108,16 +126,8 @@ fun App(module: AppModule) {
             ) { padding ->
                 if (wide) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        NavigationRail(header = { CaptureFab { showEntry = true } }) {
-                            Screen.entries.forEach { s ->
-                                NavigationRailItem(
-                                    selected = screen == s,
-                                    onClick = { screen = s },
-                                    icon = { Icon(s.icon, contentDescription = s.label) },
-                                    label = { Text(s.label) },
-                                )
-                            }
-                        }
+                        Sidebar(current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true })
+                        VerticalDivider()
                         ScreenContent(screen, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
                     }
                 } else {
@@ -133,6 +143,95 @@ private fun CaptureFab(onClick: () -> Unit) {
     FloatingActionButton(onClick = onClick) { Icon(Icons.Filled.Add, contentDescription = "Record trade") }
 }
 
+/** Desktop sidebar, styled after the dashboard mock: gradient brand mark, nav, gradient CTA, account. */
+@Composable
+private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit) {
+    val accent = Brush.linearGradient(
+        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer),
+    )
+    Column(
+        modifier = Modifier.fillMaxHeight().width(232.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        // Brand
+        Row(
+            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(BarChartIcon, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(17.dp))
+            }
+            Row {
+                Text("Trading", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Tail",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+
+        Screen.entries.forEach { s -> NavItem(s, s == current) { onSelect(s) } }
+
+        Spacer(Modifier.weight(1f))
+
+        // Gradient "New Trade" CTA
+        Row(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(accent)
+                .clickable(onClick = onNewTrade).padding(vertical = 11.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("New Trade", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
+        }
+
+        // Account chip
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(32.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("KS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column {
+                Text("K. Siwatt", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text("Bangkok · THB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavItem(screen: Screen, selected: Boolean, onClick: () -> Unit) {
+    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.13f) else Color.Transparent
+    val fg = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val iconTint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(bg)
+            .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Icon(screen.icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
+        Text(screen.label, color = fg, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+    }
+}
+
 @Composable
 private fun ScreenContent(
     screen: Screen,
@@ -141,7 +240,8 @@ private fun ScreenContent(
     analyticsVm: AnalyticsViewModel,
     modifier: Modifier,
 ) {
-    Surface(modifier = modifier) {
+    // Content sits on the darker canvas so the lighter `surface` cards read as raised (like the mock).
+    Surface(modifier = modifier, color = MaterialTheme.colorScheme.background) {
         when (screen) {
             Screen.Journal -> JournalScreen(journalVm)
             Screen.Calendar -> CalendarScreen(calendarVm)

@@ -65,3 +65,6 @@ CLAUDE.local.md
 .github/copilot-instructions.md
 GEMINI.md
 .gemini/
+.impeccable/design.json
+*.md
+.impeccable/dashboard-mock.html
