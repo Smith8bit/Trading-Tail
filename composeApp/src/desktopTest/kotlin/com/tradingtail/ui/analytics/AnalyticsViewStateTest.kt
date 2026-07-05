@@ -121,6 +121,126 @@ class AnalyticsViewStateTest {
     }
 
     @Test
+    fun yearMonthDayGroupingSumsIntoTheRightBucketsAndKeepsFullLadders() {
+        fun ms(iso: String) = Instant.parse(iso).toEpochMilli()
+        // 2025: one trade. 2026: Jul 1 (+10, +5), Jul 3 (-4). All exits in Bangkok local (UTC+7).
+        val trades = listOf(
+            trade("3.00", ms("2025-02-10T02:00:00Z")),
+            trade("10.00", ms("2026-07-01T02:00:00Z")), trade("5.00", ms("2026-07-01T03:00:00Z")),
+            trade("-4.00", ms("2026-07-03T02:00:00Z")),
+        )
+        // By year: ascending, summed.
+        assertEquals(listOf("2025", "2026"), pnlByYear(trades).map { it.label })
+        assertEquals(listOf(3f, 11f), pnlByYear(trades).map { it.value }) // 2026: 10+5-4
+        assertEquals(listOf(1f, 3f), tradesByYear(trades).map { it.value })
+
+        // By month of 2026: full Jan..Dec ladder, only Jul populated.
+        val byMonth = pnlByMonthOfYear(trades, 2026)
+        assertEquals(12, byMonth.size)
+        assertEquals(11f, byMonth[6].value) // Jul = index 6
+        assertEquals(0f, byMonth[0].value)  // Jan untouched
+
+        // By day of Jul 2026: 31-day ladder, Jul 1 = +15, Jul 3 = -4, others 0.
+        val byDay = pnlByDayOfMonth(trades, 2026, 7)
+        assertEquals(31, byDay.size)
+        assertEquals(15f, byDay[0].value)  // day 1
+        assertEquals(-4f, byDay[2].value)  // day 3
+        assertEquals(0f, byDay[1].value)   // day 2
+        assertEquals(2, tradesByDayOfMonth(trades, 2026, 7)[0].value.toInt()) // two fills on Jul 1
+    }
+
+    @Test
+    fun stdDevAndSqnFromTradePnl() {
+        // pnls 10,20,30 → mean 20, population var (100+0+100)/3 → sd ≈ 8.165; sqn = √3·20/sd ≈ 4.243.
+        val t = listOf(trade("10.00", 1), trade("20.00", 2), trade("30.00", 3))
+        assertEquals(8.165, pnlStdDev(t)!!, 1e-2)
+        assertEquals(4.243, sqn(t)!!, 1e-2)
+        assertEquals(null, pnlStdDev(listOf(trade("5.00", 1)))) // < 2 trades → undefined
+    }
+
+    @Test
+    fun kellyIsNullWithoutLosersElseUsesWinLossRatio() {
+        assertEquals(null, kelly(listOf(trade("5.00", 1), trade("3.00", 2)))) // no losers
+        // W=0.5, avgWin=10, avgLoss=-5 → R=2 → 0.5 − 0.5/2 = 0.25
+        assertEquals(0.25, kelly(listOf(trade("10.00", 1), trade("-5.00", 2)))!!, 1e-6)
+    }
+
+    @Test
+    fun avgDailyPnlAveragesPerDayNetNotPerTrade() {
+        fun ms(iso: String) = Instant.parse(iso).toEpochMilli()
+        // Jul 1 net +3 (+5,-2) · Jul 2 net -4 → average of {3, -4} = -0.50 (not per-trade).
+        val v = avgDailyPnl(listOf(
+            trade("5.00", ms("2026-07-01T02:00:00Z")), trade("-2.00", ms("2026-07-01T03:00:00Z")),
+            trade("-4.00", ms("2026-07-02T02:00:00Z")),
+        ))
+        assertEquals(bigDecimal("-0.50"), v)
+    }
+
+    @Test
+    fun pnlByVolumeTradedBucketsOnEntryShareSize() {
+        val qty = mapOf(1L to bigDecimal("15"), 2L to bigDecimal("250"), 3L to bigDecimal("6000"))
+        val out = pnlByVolumeTraded(listOf(tradeAt("10.00", 1), tradeAt("-5.00", 2), tradeAt("2.00", 3))) { qty[it] }
+        assertEquals(9, out.size) // 8 fixed buckets + catch-all
+        val byLabel = out.associate { it.label to it.pnl }
+        assertEquals(bigDecimal("10.00"), byLabel["10 - 19"])   // 15 shares
+        assertEquals(bigDecimal("-5.00"), byLabel["100 - 500"]) // 250 shares
+        assertEquals(bigDecimal("2.00"), byLabel["5,000+"])     // 6000 shares → catch-all
+    }
+
+    @Test
+    fun drawdownStatsMeasuresEpisodeDepthDaysAndTrades() {
+        fun ms(iso: String) = Instant.parse(iso).toEpochMilli()
+        // cum: +10 (peak) · −6 (dd starts, 07-02) · −3 (07-03) · +9 (recovers to 10).
+        // One episode: trough 1 → depth 9, spanning 2 days / 2 trades.
+        val s = drawdownStats(listOf(
+            trade("10.00", ms("2026-07-01T02:00:00Z")),
+            trade("-6.00", ms("2026-07-02T02:00:00Z")),
+            trade("-3.00", ms("2026-07-03T02:00:00Z")),
+            trade("9.00", ms("2026-07-04T02:00:00Z")),
+        ))
+        assertEquals(bigDecimal("9.00"), s.biggest)
+        assertEquals(bigDecimal("9.00"), s.avgDrawdown)
+        assertEquals(2, s.totalDays)
+        assertEquals(2.0, s.avgDays, 1e-9)
+        assertEquals(2.0, s.avgTrades, 1e-9)
+    }
+
+    @Test
+    fun movingAverageIsTrailingAndNullUntilWindowFills() {
+        assertEquals(listOf(null, 3f, 5f, 7f), movingAverage(listOf(2f, 4f, 6f, 8f), 2))
+    }
+
+    @Test
+    fun dayInRangeIsInclusiveAndTreatsNullBoundsAsOpen() {
+        val d = com.tradingtail.common.BkkDate(2026, 6, 15)
+        val from = com.tradingtail.common.BkkDate(2026, 6, 1)
+        val to = com.tradingtail.common.BkkDate(2026, 6, 30)
+        assertEquals(true, dayInRange(d, from, to))
+        assertEquals(true, dayInRange(from, from, to))              // inclusive lower bound
+        assertEquals(true, dayInRange(to, from, to))               // inclusive upper bound
+        assertEquals(false, dayInRange(com.tradingtail.common.BkkDate(2026, 7, 1), from, to))
+        assertEquals(false, dayInRange(com.tradingtail.common.BkkDate(2026, 5, 31), from, to))
+        assertEquals(true, dayInRange(d, null, null))              // no bounds → everything passes
+        assertEquals(true, dayInRange(d, from, null))              // open upper
+        assertEquals(false, dayInRange(com.tradingtail.common.BkkDate(2025, 1, 1), from, null))
+    }
+
+    @Test
+    fun presetRangeComputesDayBoundsAgainstToday() {
+        // "now" = 2026-07-05 12:00 Bangkok (2026-07-05T05:00Z).
+        val now = Instant.parse("2026-07-05T05:00:00Z").toEpochMilli()
+        fun d(y: Int, m: Int, day: Int) = com.tradingtail.common.BkkDate(y, m, day)
+        assertEquals(d(2026, 7, 5) to d(2026, 7, 5), presetRange(RangePreset.Today, now))
+        assertEquals(d(2026, 7, 4) to d(2026, 7, 4), presetRange(RangePreset.Yesterday, now))
+        assertEquals(d(2026, 6, 29) to d(2026, 7, 5), presetRange(RangePreset.Last7, now))   // 7 days incl today
+        assertEquals(d(2026, 7, 1) to d(2026, 7, 31), presetRange(RangePreset.ThisMonth, now))
+        assertEquals(d(2026, 6, 1) to d(2026, 6, 30), presetRange(RangePreset.LastMonth, now))
+        assertEquals(d(2025, 7, 5) to d(2026, 7, 5), presetRange(RangePreset.Last12Months, now))
+        assertEquals(d(2025, 1, 1) to d(2025, 12, 31), presetRange(RangePreset.LastYear, now))
+        assertEquals(d(2026, 1, 1) to d(2026, 7, 5), presetRange(RangePreset.Ytd, now))
+    }
+
+    @Test
     fun hourWindowSpansPreToAfterMarketFillingEmptyHours() {
         val out = hourWindow(listOf(com.tradingtail.domain.usecase.HourPnl(9, 3, bigDecimal("50.00"))))
         assertEquals(HOUR_END - HOUR_START + 1, out.size)          // continuous 06:00..20:00

@@ -8,15 +8,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
@@ -33,6 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,20 +84,27 @@ fun CalendarScreen(vm: CalendarViewModel, modifier: Modifier = Modifier) {
     var ym by remember { mutableStateOf(currentYearMonth()) }
     var selectedDay by remember { mutableStateOf<BkkDate?>(null) }
     val today = remember { bkkDate(nowMillis()) }
+    // Days with a journal note → the note glyph on that day cell lights up (else it's a muted affordance).
+    val notedDays = remember(trades) {
+        trades.filter { !it.notes.isNullOrBlank() }.map { bkkDate(it.exitTimestamp) }.toSet()
+    }
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
-            modifier = Modifier.widthIn(max = 1100.dp).fillMaxWidth().padding(16.dp)
+            modifier = Modifier.widthIn(max = 1500.dp).fillMaxWidth().padding(16.dp)
                 .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             MonthCard(
                 ym = ym,
                 byDay = byDay,
                 today = today,
+                notedDays = notedDays,
                 onPrev = { ym = ym.prev() },
                 onNext = { ym = ym.next() },
                 onDayClick = { selectedDay = it },
+                modifier = Modifier.widthIn(max = 1100.dp), // big card stays 1100; wider stretches its day cells
             )
             YearOverview(
                 year = ym.year,
@@ -100,6 +113,7 @@ fun CalendarScreen(vm: CalendarViewModel, modifier: Modifier = Modifier) {
                 onPrevYear = { ym = ym.copy(year = ym.year - 1) },
                 onNextYear = { ym = ym.copy(year = ym.year + 1) },
                 onOpen = { ym = it },
+                modifier = Modifier.fillMaxWidth(), // mini grid fills the wider 1500 band
             )
         }
     }
@@ -124,14 +138,16 @@ private fun MonthCard(
     ym: YearMonth,
     byDay: Map<BkkDate, DayPnl>,
     today: BkkDate,
+    notedDays: Set<BkkDate>,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onDayClick: (BkkDate) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val monthTotal = byDay.filterKeys { it.year == ym.year && it.month == ym.month }
         .values.fold(ZERO) { acc, d -> acc.add(d.pnl) }
 
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Header: month name (with nav) left, running monthly P&L right.
             Row(
@@ -148,14 +164,14 @@ private fun MonthCard(
                     Text(
                         "Monthly P&L: ",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.titleMedium,
                     )
                     Text(
                         formatMoney(monthTotal),
                         color = pnlColor(monthTotal),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.titleMedium,
                     )
                 }
             }
@@ -170,7 +186,7 @@ private fun MonthCard(
                         modifier = Modifier.weight(1f),
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelLarge,
                     )
                 }
                 Text(
@@ -178,11 +194,12 @@ private fun MonthCard(
                     modifier = Modifier.weight(1.3f),
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelLarge,
                 )
             }
 
-            monthCells(ym).chunked(7).forEachIndexed { i, week ->
+            // minWeeks = 6 → the card is always 6 week-rows tall, so every active month is the same size.
+            monthCells(ym, minWeeks = 6).chunked(7).forEachIndexed { i, week ->
                 val monthStats = week.filter { it.inMonth }.mapNotNull { byDay[it.date] }
                 val weekTotal = monthStats.fold(ZERO) { acc, s -> acc.add(s.pnl) }
                 val weekTrades = monthStats.sumOf { it.trades }
@@ -192,6 +209,7 @@ private fun MonthCard(
                             cell = cell,
                             stat = if (cell.inMonth) byDay[cell.date] else null,
                             isToday = cell.date == today,
+                            hasNote = cell.date in notedDays,
                             onClick = { if (cell.inMonth) onDayClick(cell.date) },
                             modifier = Modifier.weight(1f),
                         )
@@ -203,17 +221,27 @@ private fun MonthCard(
     }
 }
 
-/** One day tile: day number top-left, then net P&L + trade count. Adjacent-month days are greyed. */
+/** One day tile: day number + note glyph top row, then net P&L + trade count. Adjacent-month days are greyed. */
 @Composable
-private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, onClick: () -> Unit, modifier: Modifier) {
+private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, hasNote: Boolean, onClick: () -> Unit, modifier: Modifier) {
     val border = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     val dayColor = if (cell.inMonth) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
-    var box = modifier.height(60.dp).clip(RoundedCornerShape(8.dp))
+    var box = modifier.height(88.dp).clip(RoundedCornerShape(8.dp))
         .border(1.dp, border, RoundedCornerShape(8.dp))
     if (cell.inMonth) box = box.clickable(onClick = onClick)
 
     Column(modifier = box.padding(6.dp)) {
-        Text(cell.date.day.toString(), color = dayColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+            Text(cell.date.day.toString(), color = dayColor, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            if (cell.inMonth) {
+                Icon(
+                    NoteIcon,
+                    contentDescription = if (hasNote) "Has note" else null,
+                    tint = if (hasNote) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+        }
         if (cell.inMonth) {
             Spacer(Modifier.weight(1f))
             Text(
@@ -221,13 +249,13 @@ private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, onClick: () 
                 color = if (stat == null) MaterialTheme.colorScheme.onSurfaceVariant else pnlColor(stat.pnl),
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
             )
             Text(
                 "${stat?.trades ?: 0} trades",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
             )
         }
@@ -238,21 +266,21 @@ private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, onClick: () 
 @Composable
 private fun WeekCell(label: String, trades: Int, total: BigDecimal, modifier: Modifier) {
     Column(
-        modifier = modifier.height(60.dp).clip(RoundedCornerShape(8.dp))
+        modifier = modifier.height(88.dp).clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             .padding(6.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
         Text(
             formatMoneyShort(total),
             color = if (trades == 0) MaterialTheme.colorScheme.onSurfaceVariant else pnlColor(total),
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
         )
-        Text("$trades trades", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Text("$trades trades", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
     }
 }
 
@@ -268,14 +296,15 @@ private fun YearOverview(
     onPrevYear: () -> Unit,
     onNextYear: () -> Unit,
     onOpen: (YearMonth) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onPrevYear) { Text("‹") }
             Text("$year", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             TextButton(onClick = onNextYear) { Text("›") }
         }
-        (1..12).chunked(3).forEach { rowMonths ->
+        (1..12).chunked(4).forEach { rowMonths ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 for (m in rowMonths) {
                     val ym = YearMonth(year, m)
@@ -295,7 +324,7 @@ private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayP
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("${MONTH_NAMES[ym.month - 1]}, ${ym.year}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text("${MONTH_NAMES[ym.month - 1]}, ${ym.year}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
                 Pill(if (isActive) "Active" else "Open", isActive, onOpen)
             }
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -305,27 +334,36 @@ private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayP
                         modifier = Modifier.weight(1f),
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelLarge,
                     )
                 }
             }
-            monthCells(ym).chunked(7).forEach { week ->
+            // minWeeks = 6 pads every month to 6 rows so all mini-cards are the same height.
+            monthCells(ym, minWeeks = 6).chunked(7).forEach { week ->
                 Row(modifier = Modifier.fillMaxWidth()) {
                     for (cell in week) {
                         val stat = if (cell.inMonth) byDay[cell.date] else null
-                        Text(
-                            cell.date.day.toString(),
-                            modifier = Modifier.weight(1f).padding(vertical = 2.dp),
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (stat != null) FontWeight.Bold else FontWeight.Normal,
-                            color = when {
-                                stat != null -> pnlColor(stat.pnl)          // traded days pop as a mini heatmap
-                                cell.inMonth -> MaterialTheme.colorScheme.onBackground
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            },
-                            maxLines = 1,
-                        )
+                        // Traded days become filled color tiles (green/red/grey heatmap); other days stay plain.
+                        val tile = if (stat != null) pnlColor(stat.pnl) else null
+                        Box(
+                            modifier = Modifier.weight(1f).aspectRatio(1f).padding(1.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(tile?.copy(alpha = 0.22f) ?: Color.Transparent),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                cell.date.day.toString(),
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (stat != null) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    tile != null -> tile
+                                    cell.inMonth -> MaterialTheme.colorScheme.onBackground
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                },
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
@@ -341,9 +379,9 @@ private fun Pill(text: String, active: Boolean, onClick: () -> Unit) {
         modifier = Modifier.clip(RoundedCornerShape(6.dp))
             .border(1.dp, if (active) c else c.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 3.dp),
+            .padding(horizontal = 16.dp, vertical = 7.dp),
     ) {
-        Text(text, color = c, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        Text(text, color = c, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -388,6 +426,22 @@ private fun DaySheet(date: BkkDate, dayTrades: List<TradeEntity>) {
 
 private fun pad(n: Int): String = n.toString().padStart(2, '0')
 
+// ponytail: a lined-page glyph stroked by hand — a "document" isn't in material-icons-core and it's
+// not worth pulling material-icons-extended for one 13dp mark. Tinted by the caller (Icon).
+private val NoteIcon: ImageVector = ImageVector.Builder(
+    name = "Note",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).apply {
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f) {
+        moveTo(7f, 3f); lineTo(14f, 3f); lineTo(18f, 7f); lineTo(18f, 21f); lineTo(7f, 21f); close()
+    }
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f) { moveTo(10f, 11f); lineTo(15f, 11f) }
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f) { moveTo(10f, 15f); lineTo(15f, 15f) }
+}.build()
+
 // ---------------------------------------------------------------------------------------------
 // Pure grid layout (testable)
 // ---------------------------------------------------------------------------------------------
@@ -398,8 +452,9 @@ data class CalCell(val date: BkkDate, val inMonth: Boolean)
 /**
  * Sunday-first grid of [ym], padded with the trailing days of the previous month and the leading
  * days of the next so every week row is a full 7 cells (matches the TraderVue calendar layout).
+ * [minWeeks] pads out to at least that many rows so a set of grids can be forced to equal height.
  */
-fun monthCells(ym: YearMonth): List<CalCell> = buildList {
+fun monthCells(ym: YearMonth, minWeeks: Int = 0): List<CalCell> = buildList {
     val lead = firstWeekday(ym) % 7 // ISO Mon=1..Sun=7 → Sunday-first offset (Sun=0)
     val prev = ym.prev()
     val prevTotal = daysInMonth(prev)
@@ -407,5 +462,5 @@ fun monthCells(ym: YearMonth): List<CalCell> = buildList {
     for (day in 1..daysInMonth(ym)) add(CalCell(BkkDate(ym.year, ym.month, day), true))
     val next = ym.next()
     var nd = 1
-    while (size % 7 != 0) add(CalCell(BkkDate(next.year, next.month, nd++), false))
+    while (size % 7 != 0 || size < minWeeks * 7) add(CalCell(BkkDate(next.year, next.month, nd++), false))
 }

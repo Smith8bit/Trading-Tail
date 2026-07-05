@@ -132,10 +132,10 @@ fun App(module: AppModule) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
                         Sidebar(current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true })
                         VerticalDivider()
-                        ScreenContent(screen, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
+                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
                     }
                 } else {
-                    ScreenContent(screen, journalVm, calendarVm, analyticsVm, Modifier.padding(padding))
+                    ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.padding(padding))
                 }
             }
         }
@@ -239,6 +239,7 @@ private fun NavItem(screen: Screen, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun ScreenContent(
     screen: Screen,
+    onNavigate: (Screen) -> Unit,
     journalVm: JournalViewModel,
     calendarVm: CalendarViewModel,
     analyticsVm: AnalyticsViewModel,
@@ -250,7 +251,7 @@ private fun ScreenContent(
             Screen.Dashboard -> DashboardScreen(analyticsVm)
             Screen.Journal -> JournalScreen(journalVm)
             Screen.Calendar -> CalendarScreen(calendarVm)
-            Screen.Analytics -> AnalyticsScreen(analyticsVm)
+            Screen.Analytics -> AnalyticsScreen(analyticsVm, onOpenCalendar = { onNavigate(Screen.Calendar) })
         }
     }
 }
