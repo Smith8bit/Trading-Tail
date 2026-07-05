@@ -22,6 +22,10 @@ interface ExecutionDao {
     @Query("SELECT * FROM executions ORDER BY timestamp, id")
     suspend fun all(): List<ExecutionEntity>
 
+    // Reactive feed for the dashboard's fee/volume/entry-price widgets.
+    @Query("SELECT * FROM executions ORDER BY timestamp, id")
+    fun allFlow(): Flow<List<ExecutionEntity>>
+
     @Query("DELETE FROM executions WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 }

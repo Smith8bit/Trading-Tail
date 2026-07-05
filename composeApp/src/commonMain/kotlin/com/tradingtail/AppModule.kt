@@ -18,7 +18,7 @@ import com.tradingtail.domain.usecase.RecordQuickTrade
  * only through here.
  */
 class AppModule(db: TradeDatabase) {
-    private val executionRepo = ExecutionRepository(db.executionDao())
+    val executionRepo = ExecutionRepository(db.executionDao())
     val tradeRepo = TradeRepository(db.tradeDao())
 
     private val rebuild = RebuildTradesForSymbol(executionRepo, tradeRepo, BuildTradesFromExecutions())

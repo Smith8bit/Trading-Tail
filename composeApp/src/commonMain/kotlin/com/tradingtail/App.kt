@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tradingtail.ui.analytics.AnalyticsScreen
 import com.tradingtail.ui.analytics.AnalyticsViewModel
+import com.tradingtail.ui.analytics.DashboardScreen
 import com.tradingtail.ui.calendar.CalendarScreen
 import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.journal.JournalScreen
@@ -61,9 +63,10 @@ import com.tradingtail.ui.tradeentry.QuickTradeEntryViewModel
 import kotlinx.coroutines.launch
 
 private enum class Screen(val label: String, val icon: ImageVector) {
+    Dashboard("Dashboard", Icons.Filled.Home),
     Journal("Journal", Icons.AutoMirrored.Filled.List),
     Calendar("Calendar", Icons.Filled.DateRange),
-    Analytics("Analytics", BarChartIcon),
+    Analytics("Reports", BarChartIcon),
 }
 
 /**
@@ -74,7 +77,7 @@ private enum class Screen(val label: String, val icon: ImageVector) {
 @Composable
 fun App(module: AppModule) {
     TradingTailTheme {
-        var screen by remember { mutableStateOf(Screen.Journal) }
+        var screen by remember { mutableStateOf(Screen.Dashboard) }
         var showEntry by remember { mutableStateOf(false) }
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
@@ -85,6 +88,7 @@ fun App(module: AppModule) {
         val analyticsVm = remember {
             AnalyticsViewModel(
                 module.tradeRepo,
+                module.executionRepo,
                 module.calculateWinRate,
                 module.calculatePnlBySymbol,
                 module.calculatePnlByHour,
@@ -243,6 +247,7 @@ private fun ScreenContent(
     // Content sits on the darker canvas so the lighter `surface` cards read as raised (like the mock).
     Surface(modifier = modifier, color = MaterialTheme.colorScheme.background) {
         when (screen) {
+            Screen.Dashboard -> DashboardScreen(analyticsVm)
             Screen.Journal -> JournalScreen(journalVm)
             Screen.Calendar -> CalendarScreen(calendarVm)
             Screen.Analytics -> AnalyticsScreen(analyticsVm)

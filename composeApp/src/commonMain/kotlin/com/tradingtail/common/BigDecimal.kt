@@ -17,6 +17,13 @@ expect fun bigDecimal(value: String): BigDecimal
 expect fun bigDecimal(value: Int): BigDecimal
 expect val ZERO: BigDecimal
 
+/**
+ * Mean of money values, HALF_UP to 2 decimals; empty list → ZERO. The single sanctioned money
+ * division in the app (dashboard averages) — kept behind one helper so the rounding rule lives in
+ * exactly one place instead of leaking RoundingMode into every call site.
+ */
+expect fun averageMoney(values: List<BigDecimal>): BigDecimal
+
 /** ponytail: epoch-millis clock — commonMain can't see System.currentTimeMillis(). Swap for
  * kotlinx-datetime Clock only if calendar math is needed. Used to prefill entry-form timestamps. */
 expect fun nowMillis(): Long
