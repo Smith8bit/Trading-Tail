@@ -93,10 +93,10 @@ class AnalyticsViewStateTest {
         val out = pnlByPrice(listOf(tradeAt("10.00", 2), tradeAt("-5.00", 3), tradeAt("2.00", 1))) { price[it] }
         assertEquals(9, out.size) // full fixed ladder, empties included
         val byLabel = out.associate { it.label to it.pnl }
-        assertEquals(bigDecimal("2.00"), byLabel["< ฿2"])
-        assertEquals(bigDecimal("10.00"), byLabel["฿2–4.99"])
-        assertEquals(bigDecimal("-5.00"), byLabel["฿50–99.99"])
-        assertEquals(ZERO, byLabel["฿500+"]) // untouched bracket → ฿0
+        assertEquals(bigDecimal("2.00"), byLabel["< $2"])
+        assertEquals(bigDecimal("10.00"), byLabel["$2–4.99"])
+        assertEquals(bigDecimal("-5.00"), byLabel["$50–99.99"])
+        assertEquals(ZERO, byLabel["$500+"]) // untouched bracket → $0
     }
 
     @Test

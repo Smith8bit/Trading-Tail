@@ -3,6 +3,7 @@ package com.tradingtail.ui.analytics
 import com.tradingtail.common.BigDecimal
 import com.tradingtail.common.BkkDate
 import com.tradingtail.common.YearMonth
+import com.tradingtail.common.CURRENCY
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.averageMoney
 import com.tradingtail.common.bkkDate
@@ -184,12 +185,12 @@ fun totalVolume(executions: List<ExecutionEntity>): BigDecimal = executions.fold
 /** Distinct Bangkok days that had at least one fill — the denominator for average daily volume. */
 fun tradingDays(executions: List<ExecutionEntity>): Int = executions.map { bkkDate(it.timestamp) }.distinct().size
 
-// Entry-price buckets from the mock (THB). Upper bound exclusive; anything ≥ last falls in the catch-all.
+// Entry-price buckets (USD). Upper bound exclusive; anything ≥ last falls in the catch-all.
 private val PRICE_BUCKETS = listOf(
-    "< ฿2" to 2f, "฿2–4.99" to 5f, "฿5–9.99" to 10f, "฿10–19.99" to 20f,
-    "฿20–49.99" to 50f, "฿50–99.99" to 100f, "฿100–199.99" to 200f, "฿200–499.99" to 500f,
+    "< $2" to 2f, "$2–4.99" to 5f, "$5–9.99" to 10f, "$10–19.99" to 20f,
+    "$20–49.99" to 50f, "$50–99.99" to 100f, "$100–199.99" to 200f, "$200–499.99" to 500f,
 )
-private const val PRICE_TOP = "฿500+"
+private const val PRICE_TOP = "$500+"
 
 /**
  * P&L bucketed by a trade's entry price (first entry fill), via a lookup from execution id → price.
@@ -520,15 +521,15 @@ private fun niceNum(range: Double, round: Boolean): Double {
     return nf * base
 }
 
-/** Axis tick text: a bare integer for count axes, or an abbreviated ฿ figure for money axes. */
+/** Axis tick text: a bare integer for count axes, or an abbreviated currency figure for money axes. */
 internal fun axisLabel(v: Float, money: Boolean): String {
     if (!money) return v.toInt().toString()
     val a = kotlin.math.abs(v)
     val s = if (v < 0f) "−" else "" // U+2212 minus, matching formatMoney
     fun one(x: Double) = ((x * 10).toInt() / 10.0).toString()
     return when {
-        a >= 1_000_000f -> "$s฿${one(a / 1_000_000.0)}M"
-        a >= 1_000f -> "$s฿${one(a / 1_000.0)}k"
-        else -> "$s฿${a.toInt()}"
+        a >= 1_000_000f -> "$s$CURRENCY${one(a / 1_000_000.0)}M"
+        a >= 1_000f -> "$s$CURRENCY${one(a / 1_000.0)}k"
+        else -> "$s$CURRENCY${a.toInt()}"
     }
 }

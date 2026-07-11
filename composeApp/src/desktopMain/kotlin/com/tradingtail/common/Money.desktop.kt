@@ -15,9 +15,9 @@ actual fun formatMoney(v: BigDecimal): String {
     val scaled = v.setScale(2, RoundingMode.HALF_UP)
     val abs = FULL.format(scaled.abs())
     return when (scaled.signum()) {
-        1 -> "+฿$abs"
-        -1 -> "−฿$abs" // U+2212 minus, not hyphen
-        else -> "฿$abs"
+        1 -> "+$CURRENCY$abs"
+        -1 -> "−$CURRENCY$abs" // U+2212 minus, not hyphen
+        else -> "$CURRENCY$abs"
     }
 }
 
@@ -30,5 +30,5 @@ actual fun formatMoneyShort(v: BigDecimal): String {
         abs >= THOUSAND -> SHORT.format(abs.toDouble() / 1_000) + "k"
         else -> abs.setScale(0, RoundingMode.HALF_UP).toPlainString()
     }
-    return "$sign฿$mag"
+    return "$sign$CURRENCY$mag"
 }

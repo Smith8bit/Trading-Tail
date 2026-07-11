@@ -13,9 +13,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,6 +52,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.tradingtail.ui.analytics.AnalyticsScreen
 import com.tradingtail.ui.analytics.AnalyticsViewModel
 import com.tradingtail.ui.analytics.DashboardScreen
@@ -95,19 +99,6 @@ fun App(module: AppModule) {
             )
         }
 
-        if (showEntry) {
-            QuickTradeEntryScreen(
-                vm = quickVm,
-                onBack = { showEntry = false },
-                onSaved = {
-                    showEntry = false
-                    screen = Screen.Journal
-                    scope.launch { snackbar.showSnackbar("Trade recorded") }
-                },
-            )
-            return@TradingTailTheme
-        }
-
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp
             Scaffold(
@@ -136,6 +127,30 @@ fun App(module: AppModule) {
                     }
                 } else {
                     ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.padding(padding))
+                }
+            }
+        }
+
+        // Quick Entry as a modal over the shell — sidebar/content stay visible (dimmed) behind it.
+        if (showEntry) {
+            Dialog(
+                onDismissRequest = { showEntry = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                Surface(
+                    modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    QuickTradeEntryScreen(
+                        vm = quickVm,
+                        onBack = { showEntry = false },
+                        onSaved = {
+                            showEntry = false
+                            screen = Screen.Journal
+                            scope.launch { snackbar.showSnackbar("Trade recorded") }
+                        },
+                    )
                 }
             }
         }
@@ -214,7 +229,7 @@ private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () 
             }
             Column {
                 Text("K. Siwatt", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Bangkok · THB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Bangkok · USD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

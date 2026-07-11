@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tradingtail.common.BigDecimal
+import com.tradingtail.common.CURRENCY
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.formatMoney
 import com.tradingtail.common.formatMoneyShort
@@ -261,7 +262,7 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
             val v = maxV - range * s / steps
             val y = py(v)
             drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-            val lay = measurer.measure("฿${v.toInt()}", TextStyle(fontSize = 13.sp, color = labelColor))
+            val lay = measurer.measure("$CURRENCY${v.toInt()}", TextStyle(fontSize = 13.sp, color = labelColor))
             drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
         }
         drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = 1.5f)
@@ -445,7 +446,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
                         val v = maxV - range * st / steps
                         val y = py(v)
                         drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-                        val lay = measurer.measure("฿${v.toInt()}", TextStyle(fontSize = 13.sp, color = labelColor))
+                        val lay = measurer.measure("$CURRENCY${v.toInt()}", TextStyle(fontSize = 13.sp, color = labelColor))
                         drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
                     }
                     drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = 1.5f)

@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tradingtail.common.BigDecimal
 import com.tradingtail.common.BkkDate
+import com.tradingtail.common.CURRENCY
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.bkkDate
 import com.tradingtail.common.formatMoney
@@ -396,7 +397,7 @@ private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity
         Stat("Number of Scratch Trades", count(win.breakeven), plain),
         Stat("Max Consecutive Wins", streaks.maxWins.toString(), tc.gain),
         Stat("Max Consecutive Losses", streaks.maxLosses.toString(), tc.loss),
-        Stat("Trade P&L Standard Deviation", sd?.let { "฿${d2(it)}" } ?: na, plain),
+        Stat("Trade P&L Standard Deviation", sd?.let { "$CURRENCY${d2(it)}" } ?: na, plain),
         Stat("System Quality Number (SQN)", sqnV?.let { d2(it) } ?: na, plain),
         Stat("Probability of Random Chance", na, muted),
         Stat("Kelly Percentage", kellyV?.let { if (it < 0) "< 0%" else "${(it * 100).toInt()}%" } ?: na, plain),
