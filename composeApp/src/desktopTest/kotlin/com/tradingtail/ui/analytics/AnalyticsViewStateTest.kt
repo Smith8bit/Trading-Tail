@@ -241,6 +241,36 @@ class AnalyticsViewStateTest {
     }
 
     @Test
+    fun niceTicksAreRoundAndStraddleZeroForDivergingData() {
+        assertEquals(listOf(0f, 10f, 20f, 30f, 40f), niceTicks(0f, 40f))       // count axis, clean 10s
+        val perf = niceTicks(-258f, 102f)                                       // diverging money axis
+        assertEquals(0f, perf.first { it == 0f })                              // 0 is a real tick
+        assertEquals(-300f, perf.first())                                       // rounds out past the min
+        assertEquals(200f, perf.last())                                         // …and past the max
+        assertEquals(listOf(0f, 1f), niceTicks(0f, 0f))                        // degenerate → 0..1, no crash
+    }
+
+    @Test
+    fun intradayDurationBucketsOnHoldTimeAndOnlyIntradayTrades() {
+        fun ms(iso: String) = Instant.parse(iso).toEpochMilli()
+        fun t(pnl: String, entry: String, exit: String) = TradeEntity(
+            symbol = "X", direction = Direction.LONG,
+            entryExecutionIds = emptyList(), exitExecutionIds = emptyList(),
+            realizedPnl = bigDecimal(pnl), entryTimestamp = ms(entry), exitTimestamp = ms(exit),
+        )
+        val out = pnlByIntradayDuration(listOf(
+            t("5.00", "2026-07-01T02:00:00Z", "2026-07-01T02:00:30Z"),  // 30s → "< 1:00"
+            t("3.00", "2026-07-01T02:00:00Z", "2026-07-01T03:30:00Z"),  // 90m → "1:00:00 - 1:59:59"
+            t("9.00", "2026-07-01T02:00:00Z", "2026-07-02T02:00:00Z"),  // overnight → excluded (not intraday)
+        ))
+        assertEquals(10, out.size) // full fixed ladder
+        val byLabel = out.associate { it.label to it.pnl }
+        assertEquals(bigDecimal("5.00"), byLabel["< 1:00"])
+        assertEquals(bigDecimal("3.00"), byLabel["1:00:00 - 1:59:59"])
+        assertEquals(2, out.sumOf { it.trades }) // only the two intraday trades counted
+    }
+
+    @Test
     fun hourWindowSpansPreToAfterMarketFillingEmptyHours() {
         val out = hourWindow(listOf(com.tradingtail.domain.usecase.HourPnl(9, 3, bigDecimal("50.00"))))
         assertEquals(HOUR_END - HOUR_START + 1, out.size)          // continuous 06:00..20:00
