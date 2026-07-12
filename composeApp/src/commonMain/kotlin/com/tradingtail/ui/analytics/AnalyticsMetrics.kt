@@ -34,6 +34,12 @@ private val DOW_FULL = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 internal val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 internal const val DAY_MS = 86_400_000L
 
+/**
+ * The day a trade is attributed to — its entry (trade-open) day in Bangkok local time. "Trade day"
+ * matches a broker statement's Trade Date; equals the exit day for intraday round-trips.
+ */
+internal fun TradeEntity.tradeDay(): BkkDate = bkkDate(entryTimestamp)
+
 // Quick-pick presets for the date filter, computed against "today" (Bangkok).
 enum class RangePreset(val label: String) {
     Today("Today"), Yesterday("Yesterday"), Last7("Last 7 days"), Last30("Last 30 days"),
@@ -78,7 +84,7 @@ fun weekStrip(trades: List<TradeEntity>, now: Long): List<WeekDay> {
     val today = bkkDate(now)
     return (6 downTo 0).map { i ->
         val date = bkkDate(now - i * DAY_MS)
-        val dayTrades = trades.filter { bkkDate(it.exitTimestamp) == date }
+        val dayTrades = trades.filter { it.tradeDay() == date }
         WeekDay(
             day = date.day,
             dow = DOW_FULL[dowLabel(date) - 1],
@@ -120,7 +126,7 @@ private val DOW_ORDER = listOf(7, 1, 2, 3, 4, 5, 6)
 
 /** P&L grouped by Bangkok weekday of exit — all 7 days, Sun..Sat, empty days shown as ฿0. */
 fun pnlByDayOfWeek(trades: List<TradeEntity>): List<BucketPnl> =
-    DOW_ORDER.map { dow -> bucket(DOW_FULL[dow - 1], trades.filter { dowLabel(bkkDate(it.exitTimestamp)) == dow }) }
+    DOW_ORDER.map { dow -> bucket(DOW_FULL[dow - 1], trades.filter { dowLabel(it.tradeDay()) == dow }) }
 
 /** Intraday (entry and exit share a Bangkok day) vs multiday holds. */
 fun pnlByDuration(trades: List<TradeEntity>): List<BucketPnl> {
@@ -159,18 +165,20 @@ fun pnlBySymbolBottom(trades: List<TradeEntity>, n: Int = 20): List<BucketPnl> =
 
 /** P&L grouped by Bangkok calendar month of exit — all 12 months, Jan..Dec, empty months as ฿0. */
 fun pnlByMonth(trades: List<TradeEntity>): List<BucketPnl> {
-    val byMonth = trades.groupBy { bkkDate(it.exitTimestamp).month }
+    val byMonth = trades.groupBy { it.tradeDay().month }
     return (1..12).map { m -> bucket(MONTHS[m - 1], byMonth[m] ?: emptyList()) }
 }
 
-// Bangkok-local hour window shown on the Hour chart: pre-market (06:00) through after-market (20:00).
-const val HOUR_START = 6
-const val HOUR_END = 20
-
-/** [byHour] laid onto the fixed pre-market→after-market hour axis; hours with no trades show as ฿0. */
+/**
+ * [byHour] laid onto a continuous hour axis spanning only the hours actually traded (earliest..latest),
+ * empty hours in between shown as $0. ponytail: earlier a fixed 06:00–20:00 window silently dropped
+ * every trade outside it — wrong for US stocks traded from Bangkok (evening/overnight). Span the data
+ * instead so no hour is lost; empty input → empty (the card shows its "no trades" state).
+ */
 fun hourWindow(byHour: List<HourPnl>): List<BucketPnl> {
+    if (byHour.isEmpty()) return emptyList()
     val m = byHour.associateBy { it.hour }
-    return (HOUR_START..HOUR_END).map { h ->
+    return (byHour.minOf { it.hour }..byHour.maxOf { it.hour }).map { h ->
         val hp = m[h]
         BucketPnl(h.toString().padStart(2, '0') + ":00", hp?.trades ?: 0, hp?.pnl ?: ZERO)
     }
@@ -226,7 +234,7 @@ fun pnlByVolumeTraded(trades: List<TradeEntity>, qtyById: (Long) -> BigDecimal?)
 
 /** Average of per-Bangkok-day summed P&L (money average; empty → ฿0). */
 fun avgDailyPnl(trades: List<TradeEntity>): BigDecimal =
-    averageMoney(trades.groupBy { bkkDate(it.exitTimestamp) }.values.map { sumPnl(it) })
+    averageMoney(trades.groupBy { it.tradeDay() }.values.map { sumPnl(it) })
 
 /** Average hold time (ms) of break-even (scratch) trades, or null when there are none. */
 fun avgHoldScratch(trades: List<TradeEntity>): Long? {
@@ -343,7 +351,7 @@ private fun <T> byDaySorted(items: List<T>, day: (T) -> BkkDate): List<Pair<BkkD
 
 /** Per-day win rate (0..100) over the period — the mock's Win % bar chart. */
 fun winRateByDay(trades: List<TradeEntity>): List<DayPoint> =
-    byDaySorted(trades) { bkkDate(it.exitTimestamp) }.map { (d, g) ->
+    byDaySorted(trades) { it.tradeDay() }.map { (d, g) ->
         val decided = g.count { it.realizedPnl != ZERO }
         DayPoint(md(d), if (decided == 0) 0f else 100f * g.count { it.realizedPnl > ZERO } / decided)
     }
@@ -354,44 +362,44 @@ fun volumeByDay(executions: List<ExecutionEntity>): List<DayPoint> =
 
 /** Per-day mean trade P&L — the mock's Average Trade P&L diverging bar chart. */
 fun avgPnlByDay(trades: List<TradeEntity>): List<DayPoint> =
-    byDaySorted(trades) { bkkDate(it.exitTimestamp) }.map { (d, g) -> DayPoint(md(d), averageMoney(g.map { it.realizedPnl }).toFloat()) }
+    byDaySorted(trades) { it.tradeDay() }.map { (d, g) -> DayPoint(md(d), averageMoney(g.map { it.realizedPnl }).toFloat()) }
 
 /** Per-day summed realized P&L — the mock's Gross Daily P&L diverging bar chart. */
 fun dailyPnlPoints(trades: List<TradeEntity>): List<DayPoint> =
-    byDaySorted(trades) { bkkDate(it.exitTimestamp) }.map { (d, g) -> DayPoint(md(d), sumPnl(g).toFloat()) }
+    byDaySorted(trades) { it.tradeDay() }.map { (d, g) -> DayPoint(md(d), sumPnl(g).toFloat()) }
 
 /** Trade count per calendar year of exit, ascending (mock's Trade Distribution by Year). */
 fun tradesByYear(trades: List<TradeEntity>): List<DayPoint> =
-    trades.groupBy { bkkDate(it.exitTimestamp).year }.entries.sortedBy { it.key }
+    trades.groupBy { it.tradeDay().year }.entries.sortedBy { it.key }
         .map { (y, g) -> DayPoint(y.toString(), g.size.toFloat()) }
 
 /** Summed realized P&L per calendar year of exit, ascending (mock's Performance by Year). */
 fun pnlByYear(trades: List<TradeEntity>): List<DayPoint> =
-    trades.groupBy { bkkDate(it.exitTimestamp).year }.entries.sortedBy { it.key }
+    trades.groupBy { it.tradeDay().year }.entries.sortedBy { it.key }
         .map { (y, g) -> DayPoint(y.toString(), sumPnl(g).toFloat()) }
 
 /** Trade count for each month Jan..Dec of [year]; empty months show as 0 (full ladder, like the mock). */
 fun tradesByMonthOfYear(trades: List<TradeEntity>, year: Int): List<DayPoint> {
-    val inYear = trades.filter { bkkDate(it.exitTimestamp).year == year }
-    return (1..12).map { m -> DayPoint(MONTHS[m - 1], inYear.count { bkkDate(it.exitTimestamp).month == m }.toFloat()) }
+    val inYear = trades.filter { it.tradeDay().year == year }
+    return (1..12).map { m -> DayPoint(MONTHS[m - 1], inYear.count { it.tradeDay().month == m }.toFloat()) }
 }
 
 /** Summed P&L for each month Jan..Dec of [year]. */
 fun pnlByMonthOfYear(trades: List<TradeEntity>, year: Int): List<DayPoint> {
-    val inYear = trades.filter { bkkDate(it.exitTimestamp).year == year }
-    return (1..12).map { m -> DayPoint(MONTHS[m - 1], sumPnl(inYear.filter { bkkDate(it.exitTimestamp).month == m }).toFloat()) }
+    val inYear = trades.filter { it.tradeDay().year == year }
+    return (1..12).map { m -> DayPoint(MONTHS[m - 1], sumPnl(inYear.filter { it.tradeDay().month == m }).toFloat()) }
 }
 
 /** Trade count per day 1..daysInMonth of [year]/[month]; empty days show as 0. */
 fun tradesByDayOfMonth(trades: List<TradeEntity>, year: Int, month: Int): List<DayPoint> {
-    val inMonth = trades.filter { val d = bkkDate(it.exitTimestamp); d.year == year && d.month == month }
-    return (1..daysInMonth(YearMonth(year, month))).map { day -> DayPoint(day.toString(), inMonth.count { bkkDate(it.exitTimestamp).day == day }.toFloat()) }
+    val inMonth = trades.filter { val d = it.tradeDay(); d.year == year && d.month == month }
+    return (1..daysInMonth(YearMonth(year, month))).map { day -> DayPoint(day.toString(), inMonth.count { it.tradeDay().day == day }.toFloat()) }
 }
 
 /** Summed P&L per day 1..daysInMonth of [year]/[month]. */
 fun pnlByDayOfMonth(trades: List<TradeEntity>, year: Int, month: Int): List<DayPoint> {
-    val inMonth = trades.filter { val d = bkkDate(it.exitTimestamp); d.year == year && d.month == month }
-    return (1..daysInMonth(YearMonth(year, month))).map { day -> DayPoint(day.toString(), sumPnl(inMonth.filter { bkkDate(it.exitTimestamp).day == day }).toFloat()) }
+    val inMonth = trades.filter { val d = it.tradeDay(); d.year == year && d.month == month }
+    return (1..daysInMonth(YearMonth(year, month))).map { day -> DayPoint(day.toString(), sumPnl(inMonth.filter { it.tradeDay().day == day }).toFloat()) }
 }
 
 /** Exit-date labels parallel to [cumulativeSeries]/[drawdownSeries] (both sort by exit). */
@@ -464,7 +472,7 @@ fun drawdownSeries(trades: List<TradeEntity>): List<Float> {
 
 /** Win/loss/break-even tally at the day level (a day is won if its net realized P&L is positive). */
 fun dayTally(trades: List<TradeEntity>): DayTally {
-    val byDay = trades.groupBy { bkkDate(it.exitTimestamp) }
+    val byDay = trades.groupBy { it.tradeDay() }
         .mapValues { (_, g) -> sumPnl(g) }.values
     var w = 0; var l = 0; var b = 0
     for (p in byDay) when { p > ZERO -> w++; p < ZERO -> l++; else -> b++ }

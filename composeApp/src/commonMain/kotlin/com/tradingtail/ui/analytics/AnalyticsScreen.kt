@@ -78,8 +78,9 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
     var toDate by remember { mutableStateOf<BkkDate?>(null) }
     val tabs = listOf("Overview", "Detailed", "Win vs Loss Days", "Drawdown")
 
-    // Global From–To day filter: every tab reads from these filtered sets (and stats derived from them).
-    val trades = remember(allTrades, fromDate, toDate) { allTrades.filter { dayInRange(bkkDate(it.exitTimestamp), fromDate, toDate) } }
+    // Global From–To day filter (by trade day = entry day); every tab reads from these filtered sets.
+    val hasFilter = fromDate != null || toDate != null
+    val trades = remember(allTrades, fromDate, toDate) { allTrades.filter { dayInRange(it.tradeDay(), fromDate, toDate) } }
     val executions = remember(allExecutions, fromDate, toDate) { allExecutions.filter { dayInRange(bkkDate(it.timestamp), fromDate, toDate) } }
     val win = remember(trades) { CalculateWinRate()(trades) }
     val byHour = remember(trades) { CalculatePnlByHour()(trades) }
@@ -123,7 +124,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
                     // gross-only / $-value / aggregate, so they'd be dead chrome. Add if Net/% ever ships.
                     ReportViewToggle(view, onOpenCalendar) { view = it }
                     when (view) {
-                        ReportView.Recent -> RecentView(trades, executions, now)
+                        ReportView.Recent -> RecentView(trades, executions, now, hasFilter)
                         ReportView.YearMonthDay -> YearMonthDayView(trades, now)
                     }
                 }
@@ -222,23 +223,28 @@ private fun DateField(date: BkkDate?, placeholder: String, onPick: (BkkDate) -> 
 
 /** Recent window (mock's "Recent"): 30/60/90-day daily P&L, cumulative curve, volume, win%. */
 @Composable
-private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEntity>, now: Long) {
+private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEntity>, now: Long, hasFilter: Boolean) {
     var period by remember { mutableStateOf(30) }
     val cutoff = now - period * DAY_MS
-    val ft = remember(trades, period) { trades.filter { it.exitTimestamp >= cutoff } }
-    val ew = remember(executions, period) { executions.filter { it.timestamp >= cutoff } }
+    // When a global From–To filter is set it already scoped `trades`/`executions` — honor it instead of
+    // re-clamping to the rolling window, which would hide any range further back than `period` days.
+    val ft = remember(trades, period, hasFilter) { if (hasFilter) trades else trades.filter { it.entryTimestamp >= cutoff } }
+    val ew = remember(executions, period, hasFilter) { if (hasFilter) executions else executions.filter { it.timestamp >= cutoff } }
+    val span = if (hasFilter) "Selected range" else "$period Days"
     val tc = LocalTradeColors.current
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PeriodToggle(period) { period = it }
+        if (!hasFilter) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                PeriodToggle(period) { period = it }
+            }
         }
         ChartPair(
-            { m, fh -> BarChartCard("Gross Daily P&L ($period Days)", remember(ft) { dailyPnlPoints(ft) }, diverging = true, barColor = tc.gain, modifier = m, fillHeight = fh) },
-            { m, fh -> LineCard("Gross Cumulative P&L ($period Days)", remember(ft) { cumulativeSeries(ft) }, remember(ft) { exitDateLabels(ft) }, tc.gain, m, fillHeight = fh) },
+            { m, fh -> BarChartCard("Gross Daily P&L ($span)", remember(ft) { dailyPnlPoints(ft) }, diverging = true, barColor = tc.gain, modifier = m, fillHeight = fh) },
+            { m, fh -> LineCard("Gross Cumulative P&L ($span)", remember(ft) { cumulativeSeries(ft) }, remember(ft) { exitDateLabels(ft) }, tc.gain, m, fillHeight = fh) },
         )
         ChartPair(
-            { m, fh -> BarChartCard("Daily Volume ($period Days)", remember(ew) { volumeByDay(ew) }, diverging = false, barColor = MaterialTheme.colorScheme.primary, modifier = m, fillHeight = fh) },
-            { m, fh -> BarChartCard("Win % ($period Days)", remember(ft) { winRateByDay(ft) }, diverging = false, barColor = tc.gain, modifier = m, fillHeight = fh) },
+            { m, fh -> BarChartCard("Daily Volume ($span)", remember(ew) { volumeByDay(ew) }, diverging = false, barColor = MaterialTheme.colorScheme.primary, modifier = m, fillHeight = fh) },
+            { m, fh -> BarChartCard("Win % ($span)", remember(ft) { winRateByDay(ft) }, diverging = false, barColor = tc.gain, modifier = m, fillHeight = fh) },
         )
     }
 }
@@ -248,7 +254,7 @@ private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEnti
 private fun YearMonthDayView(trades: List<TradeEntity>, now: Long) {
     val tc = LocalTradeColors.current
     val nowDate = remember(now) { bkkDate(now) }
-    val years = remember(trades) { trades.map { bkkDate(it.exitTimestamp).year }.distinct().sorted() }
+    val years = remember(trades) { trades.map { it.tradeDay().year }.distinct().sorted() }
     var year by remember(years) { mutableStateOf(years.lastOrNull() ?: nowDate.year) }
     var month by remember { mutableStateOf(nowDate.month) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -571,11 +577,11 @@ private fun DeferredNote(title: String, modifier: Modifier = Modifier) {
 @Composable
 private fun WinLossDaysView(trades: List<TradeEntity>, executions: List<ExecutionEntity>) {
     // All durations, scoped only by the global date filter (trades is already filtered upstream).
-    val dayNet = remember(trades) { trades.groupBy { bkkDate(it.exitTimestamp) }.mapValues { sumPnl(it.value) } }
+    val dayNet = remember(trades) { trades.groupBy { it.tradeDay() }.mapValues { sumPnl(it.value) } }
     val winDays = remember(dayNet) { dayNet.filterValues { it > ZERO }.keys }
     val lossDays = remember(dayNet) { dayNet.filterValues { it < ZERO }.keys }
-    val winTrades = remember(trades, winDays) { trades.filter { bkkDate(it.exitTimestamp) in winDays } }
-    val lossTrades = remember(trades, lossDays) { trades.filter { bkkDate(it.exitTimestamp) in lossDays } }
+    val winTrades = remember(trades, winDays) { trades.filter { it.tradeDay() in winDays } }
+    val lossTrades = remember(trades, lossDays) { trades.filter { it.tradeDay() in lossDays } }
     val winExecs = remember(winTrades, executions) { execsOf(winTrades, executions) }
     val lossExecs = remember(lossTrades, executions) { execsOf(lossTrades, executions) }
     val priceById = remember(executions) { executions.associate { it.id to it.price } }

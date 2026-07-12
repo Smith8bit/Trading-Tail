@@ -49,7 +49,6 @@ import com.tradingtail.common.BigDecimal
 import com.tradingtail.common.CURRENCY
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.formatMoney
-import com.tradingtail.common.formatMoneyShort
 import com.tradingtail.domain.usecase.WinRateSummary
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.pnlColor
@@ -144,11 +143,11 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        formatMoneyShort(d.pnl),
+                        formatMoney(d.pnl), // exact figure, no abbreviation/round-up
                         color = pnlColor(d.pnl),
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.labelMedium,
                         maxLines = 1,
                     )
                     Text(

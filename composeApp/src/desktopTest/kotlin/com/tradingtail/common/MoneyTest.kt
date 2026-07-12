@@ -19,12 +19,4 @@ class MoneyTest {
     fun tinyNegativeRoundingToZeroHasNoMinus() {
         assertEquals("${CUR}0.00", formatMoney(bigDecimal("-0.001")))
     }
-
-    @Test
-    fun shortFormAbbreviatesWithSign() {
-        assertEquals("+${CUR}2.3k", formatMoneyShort(bigDecimal("2345")))
-        assertEquals("${MINUS}${CUR}1.4M", formatMoneyShort(bigDecimal("-1400000")))
-        assertEquals("${MINUS}${CUR}90", formatMoneyShort(bigDecimal("-90")))
-        assertEquals("${CUR}0", formatMoneyShort(bigDecimal("0")))
-    }
 }

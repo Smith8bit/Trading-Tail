@@ -53,7 +53,6 @@ import com.tradingtail.common.daysInMonth
 import com.tradingtail.common.firstWeekday
 import com.tradingtail.common.formatBangkok
 import com.tradingtail.common.formatMoney
-import com.tradingtail.common.formatMoneyShort
 import com.tradingtail.common.monthLabel
 import com.tradingtail.common.nowMillis
 import com.tradingtail.data.local.entity.TradeEntity
@@ -245,11 +244,11 @@ private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, hasNote: Boo
         if (cell.inMonth) {
             Spacer(Modifier.weight(1f))
             Text(
-                formatMoneyShort(stat?.pnl ?: ZERO),
+                formatMoney(stat?.pnl ?: ZERO), // exact figure, no abbreviation/round-up
                 color = if (stat == null) MaterialTheme.colorScheme.onSurfaceVariant else pnlColor(stat.pnl),
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelMedium, // smaller so the exact value fits the cell
                 maxLines = 1,
             )
             Text(
@@ -273,11 +272,11 @@ private fun WeekCell(label: String, trades: Int, total: BigDecimal, modifier: Mo
         Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
         Text(
-            formatMoneyShort(total),
+            formatMoney(total), // exact figure, no abbreviation/round-up
             color = if (trades == 0) MaterialTheme.colorScheme.onSurfaceVariant else pnlColor(total),
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelMedium,
             maxLines = 1,
         )
         Text("$trades trades", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)

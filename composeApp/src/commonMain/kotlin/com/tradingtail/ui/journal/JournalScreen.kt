@@ -69,8 +69,8 @@ fun JournalScreen(vm: JournalViewModel, modifier: Modifier = Modifier) {
         return
     }
 
-    // Trades arrive newest-first (DAO orders by exit DESC); groupBy keeps that order per day.
-    val byDay = trades.groupBy { bkkDate(it.exitTimestamp) }.toList()
+    // Grouped by trade day (entry/open day); trades arrive newest-first (DAO orders by exit DESC).
+    val byDay = trades.groupBy { bkkDate(it.entryTimestamp) }.toList()
 
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(16.dp),

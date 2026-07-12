@@ -271,12 +271,16 @@ class AnalyticsViewStateTest {
     }
 
     @Test
-    fun hourWindowSpansPreToAfterMarketFillingEmptyHours() {
-        val out = hourWindow(listOf(com.tradingtail.domain.usecase.HourPnl(9, 3, bigDecimal("50.00"))))
-        assertEquals(HOUR_END - HOUR_START + 1, out.size)          // continuous 06:00..20:00
-        assertEquals("06:00", out.first().label)
-        assertEquals("20:00", out.last().label)
-        assertEquals(bigDecimal("50.00"), out.single { it.label == "09:00" }.pnl)
-        assertEquals(ZERO, out.single { it.label == "07:00" }.pnl)  // untraded hour → ฿0
+    fun hourWindowSpansTradedHoursFillingGapsAndDropsNothing() {
+        fun hp(h: Int, pnl: String) = com.tradingtail.domain.usecase.HourPnl(h, 1, bigDecimal(pnl))
+        // Traded at 09 and 12 → axis spans 09..12 (sorted), untraded 10 & 11 filled with $0.
+        val out = hourWindow(listOf(hp(12, "-4.00"), hp(9, "50.00")))
+        assertEquals(listOf("09:00", "10:00", "11:00", "12:00"), out.map { it.label })
+        assertEquals(bigDecimal("50.00"), out.first().pnl)
+        assertEquals(bigDecimal("-4.00"), out.last().pnl)
+        assertEquals(ZERO, out.single { it.label == "10:00" }.pnl) // untraded in-between hour → $0
+        // A 01:00 trade (outside the old fixed 06:00–20:00 window) must no longer be dropped.
+        assertEquals(listOf("01:00"), hourWindow(listOf(hp(1, "7.00"))).map { it.label })
+        assertEquals(emptyList(), hourWindow(emptyList()))          // no trades → empty
     }
 }
