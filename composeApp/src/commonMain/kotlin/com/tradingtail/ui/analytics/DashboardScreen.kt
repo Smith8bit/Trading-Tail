@@ -41,7 +41,7 @@ import com.tradingtail.ui.theme.pnlColor
  * matches the rest of the app exactly (no re-implemented counting).
  */
 // Widget height unit "X" = a Performance-By card's height; the whole grid is laid out in bands of X.
-private val WIDGET_UNIT = 480.dp
+private val WIDGET_UNIT = 540.dp
 
 @Composable
 fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {

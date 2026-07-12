@@ -16,6 +16,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlin.math.roundToLong
 
 // ---------------------------------------------------------------------------------------------
 // Pure view-state derivations (testable; see AnalyticsViewStateTest). No Compose here.
@@ -529,15 +530,26 @@ private fun niceNum(range: Double, round: Boolean): Double {
     return nf * base
 }
 
-/** Axis tick text: a bare integer for count axes, or an abbreviated currency figure for money axes. */
+/** Exactly two decimal places for a non-negative value: 1234.5 → "1234.50". */
+private fun twoDpAbs(x: Double): String {
+    val c = (x * 100).roundToLong()
+    return "${c / 100}.${(c % 100).toString().padStart(2, '0')}"
+}
+
+/** Chart value/tick text, always two decimals: "72.00" for counts, "−$45.30" for money. */
+internal fun tickLabel(v: Float, money: Boolean): String {
+    val sign = if (v < 0f) "−" else "" // U+2212 minus, matching formatMoney
+    return "$sign${if (money) CURRENCY else ""}${twoDpAbs(kotlin.math.abs(v).toDouble())}"
+}
+
+/** Axis tick text: two decimals, no currency symbol — abbreviated (k/M) for large money axes. */
 internal fun axisLabel(v: Float, money: Boolean): String {
-    if (!money) return v.toInt().toString()
+    if (!money) return tickLabel(v, money = false)
     val a = kotlin.math.abs(v)
-    val s = if (v < 0f) "−" else "" // U+2212 minus, matching formatMoney
-    fun one(x: Double) = ((x * 10).toInt() / 10.0).toString()
+    val s = if (v < 0f) "−" else ""
     return when {
-        a >= 1_000_000f -> "$s$CURRENCY${one(a / 1_000_000.0)}M"
-        a >= 1_000f -> "$s$CURRENCY${one(a / 1_000.0)}k"
-        else -> "$s$CURRENCY${a.toInt()}"
+        a >= 1_000_000f -> "$s${twoDpAbs(a / 1_000_000.0)}M"
+        a >= 1_000f -> "$s${twoDpAbs(a / 1_000.0)}k"
+        else -> "$s${twoDpAbs(a.toDouble())}"
     }
 }

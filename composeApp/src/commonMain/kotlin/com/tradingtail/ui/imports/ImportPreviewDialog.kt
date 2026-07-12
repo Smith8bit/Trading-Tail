@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -21,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.tradingtail.common.CURRENCY
 import com.tradingtail.data.imports.ParsedFill
@@ -59,6 +61,8 @@ fun ImportPreviewContent(
         )
 
         if (fills.isNotEmpty()) {
+            HeaderRow()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()).weight(1f, fill = false),
             ) {
@@ -76,6 +80,25 @@ fun ImportPreviewContent(
     }
 }
 
+/** The table's column header, aligned to the same widths/weights as [FillRow]. */
+@Composable
+private fun HeaderRow() {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val style = MaterialTheme.typography.labelSmall
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Symbol", style = style, color = muted, modifier = Modifier.width(64.dp))
+        Text("Side", style = style, color = muted, modifier = Modifier.width(44.dp))
+        Text("Qty", style = style, color = muted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text("Price", style = style, color = muted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text("Fees", style = style, color = muted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text("Time", style = style, color = muted, modifier = Modifier.weight(1.4f))
+    }
+}
+
 @Composable
 private fun FillRow(f: ParsedFill) {
     val tc = LocalTradeColors.current
@@ -85,22 +108,21 @@ private fun FillRow(f: ParsedFill) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(f.symbol, style = mono.copy(fontWeight = FontWeight.SemiBold), modifier = Modifier.width(56.dp))
+        Text(f.symbol, style = mono.copy(fontWeight = FontWeight.SemiBold), modifier = Modifier.width(64.dp))
         Text(
             f.side.name,
             style = MaterialTheme.typography.labelMedium,
             color = if (f.side == Side.BUY) tc.gain else tc.loss,
-            modifier = Modifier.width(40.dp),
+            modifier = Modifier.width(44.dp),
         )
-        Text(
-            "${f.quantity} @ $CURRENCY${f.price}",
-            style = mono,
-            modifier = Modifier.weight(1f),
-        )
+        Text("${f.quantity}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text("$CURRENCY${f.price}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+        Text("$CURRENCY${f.fees}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text(
             f.bangkokDateTime.substring(5).dropLast(3), // "yyyy-MM-dd HH:mm:ss" → "MM-dd HH:mm"
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1.4f),
         )
     }
 }

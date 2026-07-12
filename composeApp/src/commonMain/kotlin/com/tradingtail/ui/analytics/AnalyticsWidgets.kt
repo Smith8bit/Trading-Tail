@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -26,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -34,7 +36,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
@@ -43,17 +52,19 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.tradingtail.common.BigDecimal
-import com.tradingtail.common.CURRENCY
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.formatMoney
 import com.tradingtail.domain.usecase.WinRateSummary
+import com.tradingtail.ui.theme.FontSize
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
+import kotlin.math.roundToInt
 
 // ---------------------------------------------------------------------------------------------
 // Shared presentational widgets (cards / rows / charts / chips) used across the analytics screens.
@@ -90,7 +101,7 @@ internal fun ChartPair(a: @Composable (Modifier, Boolean) -> Unit, b: @Composabl
     if (LocalCompact.current) {
         a(Modifier.fillMaxWidth(), false); b(Modifier.fillMaxWidth(), false)
     } else {
-        Row(Modifier.fillMaxWidth().height(320.dp), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+        Row(Modifier.fillMaxWidth().height(380.dp), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
             a(Modifier.weight(1f).fillMaxHeight(), true); b(Modifier.weight(1f).fillMaxHeight(), true)
         }
     }
@@ -190,7 +201,6 @@ internal fun KpiTile(label: String, value: String, valueColor: Color = Color.Uns
 @Composable
 internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: BigDecimal, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
     val colors = LocalTradeColors.current
-    val line = if (total < ZERO) colors.loss else colors.gain
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text("Cumulative P&L", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -200,12 +210,12 @@ internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: Big
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(top = Space.xs, bottom = Space.md),
+                modifier = Modifier.padding(top = Space.sm, bottom = Space.md),
             )
             if (series.size < 2) {
                 Text("Close a few trades to plot the curve.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                LineChartBody(series, dates, line, chartModifier(fillHeight, 150.dp), fillToBottom = true)
+                LineChartBody(series, dates, colors.gain, chartModifier(fillHeight, 190.dp), fillToBottom = true, negColor = colors.loss)
             }
         }
     }
@@ -225,12 +235,12 @@ internal fun DrawdownCard(series: List<Float>, dates: List<String>, maxDd: BigDe
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(top = Space.xs, bottom = Space.md),
+                modifier = Modifier.padding(top = Space.sm, bottom = Space.md),
             )
             if (series.size < 2) {
                 Text("Close a few trades to plot drawdown.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                LineChartBody(series, dates, colors.loss, chartModifier(fillHeight, 120.dp), fillToBottom = false)
+                LineChartBody(series, dates, colors.loss, chartModifier(fillHeight, 150.dp), fillToBottom = false)
             }
         }
     }
@@ -240,20 +250,193 @@ internal fun DrawdownCard(series: List<Float>, dates: List<String>, maxDd: BigDe
 internal fun ColumnScope.chartModifier(fillHeight: Boolean, fixed: Dp): Modifier =
     if (fillHeight) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(fixed)
 
+// Every canvas chart uses this left gutter for ฿ tick labels; hit-testing needs the same value.
+private const val LEFT_PAD = 84f
+
+/**
+ * Wraps a chart canvas so hovering the mouse over a bar/point floats a tooltip describing it. [indexAt]
+ * maps the pointer position to a data index (-1 = nothing under the cursor); [tooltip] renders it.
+ * ponytail: hover is desktop-only — Android has no pointer-move, so this stays inert there (no tap sheet).
+ */
+@Composable
+internal fun HoverChart(
+    modifier: Modifier,
+    itemCount: Int,
+    indexAt: (Offset, IntSize) -> Int,
+    tooltip: @Composable (Int) -> Unit,
+    draw: DrawScope.(hoverIdx: Int) -> Unit,
+) {
+    // rememberUpdatedState so the long-lived pointer coroutine always hit-tests against the CURRENT
+    // data/geometry — not the sizes captured when the chart first composed, which would map hover to
+    // the wrong bar after the data changes.
+    val currentIndexAt by rememberUpdatedState(indexAt)
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    var idx by remember { mutableStateOf(-1) }
+    var pointer by remember { mutableStateOf(Offset.Zero) }
+    Box(
+        modifier
+            .onSizeChanged { box = it }
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val e = awaitPointerEvent()
+                        val pos = e.changes.first().position
+                        idx = if (e.type == PointerEventType.Exit) -1 else { pointer = pos; currentIndexAt(pos, box) }
+                    }
+                }
+            },
+    ) {
+        // Clamp to the current count: when the data shrinks between pointer events a stale idx would
+        // otherwise index out of bounds (crash) or point at the wrong datum. draw reads it, so the
+        // canvas repaints as the hovered bar/point changes (highlight follows the cursor).
+        val shown = if (idx in 0 until itemCount) idx else -1
+        Canvas(Modifier.matchParentSize()) { draw(shown) }
+        if (shown >= 0) ChartTooltip(pointer, box) { tooltip(shown) }
+    }
+}
+
+/** Floating card pinned just above-right of the cursor, clamped to stay inside the chart. */
+@Composable
+private fun ChartTooltip(pointer: Offset, box: IntSize, content: @Composable () -> Unit) {
+    var tip by remember { mutableStateOf(IntSize.Zero) }
+    val x = (pointer.x.toInt() + 14).coerceIn(0, (box.width - tip.width).coerceAtLeast(0))
+    val y = (pointer.y.toInt() - tip.height - 10).coerceAtLeast(0)
+    Column(
+        Modifier.offset { IntOffset(x, y) }
+            .onSizeChanged { tip = it }
+            .clip(RoundedCornerShape(Radii.md))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(Radii.md))
+            .padding(horizontal = Space.sm, vertical = Space.xs),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) { content() }
+}
+
+/** Vertical-bar hit-test: which of [n] equal slots (after the left gutter) the cursor x sits in. */
+private fun barIndexAt(pos: Offset, box: IntSize, n: Int): Int {
+    val plotW = box.width - LEFT_PAD
+    if (n <= 0 || plotW <= 0f || pos.x < LEFT_PAD) return -1
+    return ((pos.x - LEFT_PAD) / (plotW / n)).toInt().coerceIn(0, n - 1)
+}
+
+/** Line hit-test: the sample nearest the cursor x across [n] evenly spaced points. */
+private fun lineIndexAt(pos: Offset, box: IntSize, n: Int): Int {
+    val plotW = box.width - LEFT_PAD
+    if (n < 1 || plotW <= 0f || pos.x < LEFT_PAD) return -1
+    if (n == 1) return 0
+    return (((pos.x - LEFT_PAD) / plotW) * (n - 1)).roundToInt().coerceIn(0, n - 1)
+}
+
+/** Horizontal-bar hit-test: which row band (above the bottom axis) the cursor y sits in. */
+private fun hbarIndexAt(pos: Offset, box: IntSize, n: Int, axisPx: Float): Int {
+    val plotBottom = box.height - axisPx
+    if (n <= 0 || plotBottom <= 0f || pos.y < 0f || pos.y > plotBottom) return -1
+    return (pos.y / (plotBottom / n)).toInt().coerceIn(0, n - 1)
+}
+
+/**
+ * Value-axis (min, max) for a vertical chart, padded to include 0. When the data straddles zero
+ * (gains and losses both present) the bounds are made symmetric so the zero line lands at the
+ * vertical middle of the graph; one-sided data keeps zero at the baseline (no wasted half).
+ */
+private fun zeroCenteredBounds(values: List<Float>): Pair<Float, Float> {
+    val lo = minOf(0f, values.minOrNull() ?: 0f)
+    val hi = maxOf(0f, values.maxOrNull() ?: 0f)
+    if (lo < 0f && hi > 0f) { val b = maxOf(-lo, hi); return -b to b }
+    return lo to hi
+}
+
+/** Centered x-axis caption pinned to the bottom of the canvas, under the tick labels. */
+private fun DrawScope.drawAxisTitle(measurer: TextMeasurer, text: String, color: Color, leftPad: Float) {
+    if (text.isEmpty()) return
+    val lay = measurer.measure(text, TextStyle(fontSize = FontSize.sm, color = color, fontWeight = FontWeight.Medium))
+    val plotW = size.width - leftPad
+    val x = (leftPad + (plotW - lay.size.width) / 2f).coerceAtLeast(leftPad)
+    drawText(lay, topLeft = Offset(x, size.height - lay.size.height))
+}
+
+/** Small muted caption + a label→value line, the shared shape of every chart tooltip. */
+@Composable
+private fun TooltipHead(text: String) {
+    if (text.isNotEmpty()) Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+    )
+}
+
+@Composable
+private fun TooltipValue(text: String, color: Color = MaterialTheme.colorScheme.onSurface) = Text(
+    text,
+    color = color,
+    fontFamily = FontFamily.Monospace,
+    fontWeight = FontWeight.Bold,
+    style = MaterialTheme.typography.labelMedium,
+)
+
+/** Vertical-bar tooltip: chart title as context, then the bar's label + value (฿-prefixed when money). */
+@Composable
+private fun BarTooltip(title: String, p: DayPoint, money: Boolean) {
+    TooltipHead(title)
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        Text(p.label, style = MaterialTheme.typography.labelMedium)
+        TooltipValue(tickLabel(p.value, money))
+    }
+}
+
+/** Line tooltip: the point's date and its ฿ value, colored by sign. */
+@Composable
+private fun LineTooltip(date: String, value: Float) {
+    val c = LocalTradeColors.current.let { if (value > 0f) it.gain else if (value < 0f) it.loss else it.neutralPnl }
+    TooltipHead(date)
+    TooltipValue(tickLabel(value, money = true), c)
+}
+
+/** Multi-series tooltip: the date, then a color swatch + ฿ value per line that has a point here. */
+@Composable
+private fun MultiLineTooltip(date: String, series: List<LineSpec>, i: Int) {
+    TooltipHead(date)
+    for (sp in series) {
+        val v = sp.values.getOrNull(i) ?: continue
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            Box(Modifier.size(8.dp).background(sp.color, RoundedCornerShape(2.dp)))
+            TooltipValue(tickLabel(v, money = true))
+        }
+    }
+}
+
+/** Horizontal-bar tooltip: bucket label, its ฿ P&L (performance charts) and trade count. */
+@Composable
+private fun BucketTooltip(b: BucketPnl, performance: Boolean) {
+    Text(b.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+    if (performance) TooltipValue(formatMoney(b.pnl), pnlColor(b.pnl))
+    Text(
+        "${b.trades} trades",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 /** Shared line-chart canvas: value gridlines + ฿ y-labels on the left, sampled date labels on the x-axis. */
 @Composable
-internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color, canvasModifier: Modifier, fillToBottom: Boolean) {
+internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color, canvasModifier: Modifier, fillToBottom: Boolean, xLabel: String = "Date", negColor: Color? = null) {
     val measurer = rememberTextMeasurer()
     val grid = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-    Canvas(modifier = canvasModifier) {
-        val leftPad = 66f // ponytail: room for ฿k/฿M + long ฿ tick labels
-        val bottomPad = 24f
+    val dotRing = MaterialTheme.colorScheme.surface // halo so the hover dot reads over the line
+    HoverChart(
+        modifier = canvasModifier,
+        itemCount = series.size,
+        indexAt = { pos, sz -> lineIndexAt(pos, sz, series.size) },
+        tooltip = { i -> LineTooltip(dates.getOrElse(i) { "" }, series[i]) },
+    ) { hoverIdx ->
+        val leftPad = 84f // ponytail: room for ฿k/฿M + long ฿ tick labels
+        val bottomPad = if (xLabel.isEmpty()) 28f else 48f
         val plotW = size.width - leftPad
         val plotH = size.height - bottomPad
         val n = series.size
-        val minV = minOf(0f, series.minOrNull() ?: 0f)
-        val maxV = maxOf(0f, series.maxOrNull() ?: 0f)
+        val (minV, maxV) = zeroCenteredBounds(series)
         val range = (maxV - minV).let { if (it == 0f) 1f else it }
         fun px(i: Int) = leftPad + plotW * i / (n - 1)
         fun py(v: Float) = plotH * (1f - (v - minV) / range)
@@ -263,7 +446,7 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
             val v = maxV - range * s / steps
             val y = py(v)
             drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-            val lay = measurer.measure("$CURRENCY${v.toInt()}", TextStyle(fontSize = 13.sp, color = labelColor))
+            val lay = measurer.measure(axisLabel(v, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
             drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
         }
         drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = 1.5f)
@@ -272,44 +455,71 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
             moveTo(px(0), py(series[0]))
             for (i in 1 until n) lineTo(px(i), py(series[i]))
         }
-        val base = if (fillToBottom) plotH else py(0f)
-        val fill = Path().apply { addPath(path); lineTo(px(n - 1), base); lineTo(px(0), base); close() }
-        drawPath(fill, color = line.copy(alpha = 0.16f))
-        drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
+        if (negColor == null) {
+            val base = if (fillToBottom) plotH else py(0f)
+            val fill = Path().apply { addPath(path); lineTo(px(n - 1), base); lineTo(px(0), base); close() }
+            drawPath(fill, color = line.copy(alpha = 0.16f))
+            drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
+        } else {
+            // Sign-colored equity curve: fill/line to the zero line, [line] above it, [negColor] below.
+            val zeroY = py(0f)
+            val fill = Path().apply { addPath(path); lineTo(px(n - 1), zeroY); lineTo(px(0), zeroY); close() }
+            clipRect(top = 0f, bottom = zeroY) {
+                drawPath(fill, color = line.copy(alpha = 0.16f))
+                drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
+            }
+            clipRect(top = zeroY, bottom = size.height) {
+                drawPath(fill, color = negColor.copy(alpha = 0.16f))
+                drawPath(path, color = negColor, style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+
+        if (hoverIdx in 0 until n) {
+            val hx = px(hoverIdx); val hy = py(series[hoverIdx])
+            drawLine(grid, Offset(hx, 0f), Offset(hx, plotH), strokeWidth = 1f)
+            drawCircle(dotRing, radius = 5.5.dp.toPx(), center = Offset(hx, hy))
+            drawCircle(if (negColor != null && series[hoverIdx] < 0f) negColor else line, radius = 4.dp.toPx(), center = Offset(hx, hy))
+        }
 
         val xn = minOf(5, n)
         if (xn >= 2) for (k in 0 until xn) {
             val i = k * (n - 1) / (xn - 1)
-            val lay = measurer.measure(dates.getOrElse(i) { "" }, TextStyle(fontSize = 13.sp, color = labelColor))
+            val lay = measurer.measure(dates.getOrElse(i) { "" }, TextStyle(fontSize = FontSize.sm, color = labelColor))
             val x = (px(i) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
-            drawText(lay, topLeft = Offset(x, plotH + 2f))
+            drawText(lay, topLeft = Offset(x, plotH + 6f))
         }
+        drawAxisTitle(measurer, xLabel, labelColor, leftPad)
     }
 }
 
 /** Per-day vertical bar chart (Win %, Daily Volume, Average Trade P&L). Diverging colors green/red by sign. */
 @Composable
-internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Boolean, barColor: Color, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
+internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Boolean, barColor: Color, modifier: Modifier = Modifier, fillHeight: Boolean = false, xLabel: String = "Date", labelEveryBar: Boolean = false) {
     val measurer = rememberTextMeasurer()
     val colors = LocalTradeColors.current
     val grid = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val hoverTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) // brightens the hovered bar
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
-            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
+            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (points.isEmpty()) {
                 Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                Canvas(modifier = chartModifier(fillHeight, 150.dp)) {
-                    // ponytail: 66px fits abbreviated ฿k/฿M and 5–6 digit ฿ tick labels without clipping.
-                    val leftPad = 66f
-                    val bottomPad = 24f
+                HoverChart(
+                    modifier = chartModifier(fillHeight, 190.dp),
+                    itemCount = points.size,
+                    indexAt = { pos, sz -> barIndexAt(pos, sz, points.size) },
+                    tooltip = { i -> BarTooltip(title, points[i], money = diverging) },
+                ) { hoverIdx ->
+                    // ponytail: 84px fits two-decimal k/M abbreviations at 14sp without clipping.
+                    val leftPad = 84f
+                    val bottomPad = if (xLabel.isEmpty()) 28f else 48f
                     val plotW = size.width - leftPad
                     val plotH = size.height - bottomPad
                     val n = points.size
                     val values = points.map { it.value }
-                    val minV = if (diverging) minOf(0f, values.min()) else 0f
-                    val maxV = maxOf(0f, values.max()).let { if (it == 0f && minV == 0f) 1f else it }
+                    val (minV, maxV) = if (diverging) zeroCenteredBounds(values) else (0f to maxOf(0f, values.max()))
                     val range = (maxV - minV).let { if (it == 0f) 1f else it }
                     fun py(v: Float) = plotH * (1f - (v - minV) / range)
 
@@ -318,12 +528,13 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
                         val v = maxV - range * s / steps
                         val y = py(v)
                         drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-                        val lay = measurer.measure(v.toInt().toString(), TextStyle(fontSize = 13.sp, color = labelColor))
+                        val lay = measurer.measure(axisLabel(v, diverging), TextStyle(fontSize = FontSize.sm, color = labelColor))
                         drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
                     }
                     val zeroY = py(0f)
                     val slot = plotW / n
-                    val barW = slot * 0.6f
+                    // ponytail: cap width so a 2–3 bar chart draws bars, not fat blocks.
+                    val barW = minOf(slot * 0.6f, 48.dp.toPx())
                     for (i in 0 until n) {
                         val v = values[i]
                         val cx = leftPad + slot * (i + 0.5f)
@@ -334,13 +545,22 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
                     }
                     drawLine(grid, Offset(leftPad, zeroY), Offset(size.width, zeroY), strokeWidth = 1.5f)
 
-                    val xn = minOf(6, n)
-                    if (xn >= 2) for (k in 0 until xn) {
-                        val i = k * (n - 1) / (xn - 1)
-                        val lay = measurer.measure(points[i].label, TextStyle(fontSize = 13.sp, color = labelColor))
-                        val x = (leftPad + slot * (i + 0.5f) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
-                        drawText(lay, topLeft = Offset(x, plotH + 2f))
+                    if (hoverIdx in 0 until n) {
+                        val v = values[hoverIdx]
+                        val cx = leftPad + slot * (hoverIdx + 0.5f)
+                        val top = py(maxOf(v, 0f)); val bot = py(minOf(v, 0f))
+                        drawRect(hoverTint, topLeft = Offset(cx - barW / 2f, minOf(top, bot)), size = androidx.compose.ui.geometry.Size(barW, kotlin.math.abs(bot - top).coerceAtLeast(1f)))
                     }
+
+                    // Every bar labeled (years/months) or evenly sampled to ≤6 (dense day/date axes).
+                    val xIdx = if (labelEveryBar) (0 until n).toList()
+                        else minOf(6, n).let { xn -> if (xn < 2) emptyList() else (0 until xn).map { it * (n - 1) / (xn - 1) } }
+                    for (i in xIdx) {
+                        val lay = measurer.measure(points[i].label, TextStyle(fontSize = FontSize.sm, color = labelColor))
+                        val x = (leftPad + slot * (i + 0.5f) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
+                        drawText(lay, topLeft = Offset(x, plotH + 6f))
+                    }
+                    drawAxisTitle(measurer, xLabel, labelColor, leftPad)
                 }
             }
         }
@@ -359,21 +579,28 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
     val grid = MaterialTheme.colorScheme.outlineVariant
     val zeroLine = MaterialTheme.colorScheme.outline
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val hoverTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) // brightens the hovered bar
     SectionCard(title, modifier) {
         if (buckets.isEmpty()) {
             Text("No trades yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@SectionCard
         }
         val n = buckets.size
-        val rowH = 24.dp
-        val axisH = 22.dp
-        Canvas(modifier = Modifier.fillMaxWidth().height(rowH * n + axisH)) {
+        val rowH = 36.dp
+        val axisH = 44.dp // tick labels + the x-axis caption below them
+        val axisPxHit = with(LocalDensity.current) { axisH.toPx() }
+        HoverChart(
+            modifier = Modifier.fillMaxWidth().height(rowH * n + axisH),
+            itemCount = n,
+            indexAt = { pos, sz -> hbarIndexAt(pos, sz, n, axisPxHit) },
+            tooltip = { i -> BucketTooltip(buckets[i], performance) },
+        ) { hoverIdx ->
             val axisPx = axisH.toPx()
             val plotBottom = size.height - axisPx
-            val labelStyle = TextStyle(fontSize = 12.sp, color = labelColor)
-            val tickStyle = TextStyle(fontSize = 12.sp, color = labelColor)
+            val labelStyle = TextStyle(fontSize = FontSize.sm, color = labelColor)
+            val tickStyle = TextStyle(fontSize = FontSize.sm, color = labelColor)
             val maxLabelW = buckets.maxOf { measurer.measure(it.label, labelStyle).size.width }
-            val leftPad = (maxLabelW + 10f).coerceAtMost(size.width * 0.42f)
+            val leftPad = (maxLabelW + 14f).coerceAtMost(size.width * 0.42f)
             val plotW = size.width - leftPad
 
             val values = buckets.map { if (performance) it.pnl.toFloat() else it.trades.toFloat() }
@@ -392,13 +619,14 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
                 drawLine(grid.copy(alpha = 0.35f), Offset(gx, 0f), Offset(gx, plotBottom), strokeWidth = 1f)
                 val lab = measurer.measure(axisLabel(t, performance), tickStyle)
                 val lx = (gx - lab.size.width / 2f).coerceIn(leftPad, size.width - lab.size.width)
-                drawText(lab, topLeft = Offset(lx, plotBottom + 4f))
+                drawText(lab, topLeft = Offset(lx, plotBottom + 6f))
             }
             if (performance) drawLine(zeroLine, Offset(zeroX, 0f), Offset(zeroX, plotBottom), strokeWidth = 1.5f)
+            drawAxisTitle(measurer, if (performance) "P&L" else "Trades", labelColor, leftPad)
 
             // Bars + left category labels.
             val rowHpx = plotBottom / n
-            val barH = rowHpx * 0.62f
+            val barH = rowHpx * 0.5f
             buckets.forEachIndexed { i, b ->
                 val v = values[i]
                 val cy = rowHpx * (i + 0.5f)
@@ -410,6 +638,14 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
                 val lab = measurer.measure(b.label, labelStyle)
                 drawText(lab, topLeft = Offset((leftPad - lab.size.width - 6f).coerceAtLeast(0f), cy - lab.size.height / 2f))
             }
+
+            if (hoverIdx in buckets.indices) {
+                val v = values[hoverIdx]
+                val cy = rowHpx * (hoverIdx + 0.5f)
+                val left = if (!performance) leftPad else minOf(zeroX, x(v))
+                val right = if (!performance) x(v) else maxOf(zeroX, x(v))
+                drawRect(hoverTint, topLeft = Offset(left, cy - barH / 2f), size = androidx.compose.ui.geometry.Size((right - left).coerceAtLeast(1f), barH))
+            }
         }
     }
 }
@@ -419,25 +655,30 @@ internal data class LineSpec(val values: List<Float?>, val color: Color)
 /** Multi-series line chart (nullable points break the line) sharing one value axis — the mock's
  *  P&L Moving Average / Volatility widgets. */
 @Composable
-internal fun MultiLineChartCard(title: String, dates: List<String>, series: List<LineSpec>, modifier: Modifier = Modifier) {
+internal fun MultiLineChartCard(title: String, dates: List<String>, series: List<LineSpec>, modifier: Modifier = Modifier, xLabel: String = "Date") {
     val measurer = rememberTextMeasurer()
     val grid = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val dotRing = MaterialTheme.colorScheme.surface // halo so the hover dots read over the lines
     val n = series.firstOrNull()?.values?.size ?: 0
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
-            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
+            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (n < 2) {
                 Text("Not enough data to create this chart.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
-                Canvas(modifier = Modifier.fillMaxWidth().height(220.dp)) {
-                    val leftPad = 66f // ponytail: room for ฿k/฿M + long ฿ tick labels
-                    val bottomPad = 24f
+                HoverChart(
+                    modifier = Modifier.fillMaxWidth().height(260.dp),
+                    itemCount = n,
+                    indexAt = { pos, sz -> lineIndexAt(pos, sz, n) },
+                    tooltip = { i -> MultiLineTooltip(dates.getOrElse(i) { "" }, series, i) },
+                ) { hoverIdx ->
+                    val leftPad = 84f // ponytail: room for ฿k/฿M + long ฿ tick labels
+                    val bottomPad = if (xLabel.isEmpty()) 28f else 48f
                     val plotW = size.width - leftPad
                     val plotH = size.height - bottomPad
                     val all = series.flatMap { it.values.filterNotNull() }
-                    val minV = minOf(0f, all.minOrNull() ?: 0f)
-                    val maxV = maxOf(0f, all.maxOrNull() ?: 0f)
+                    val (minV, maxV) = zeroCenteredBounds(all)
                     val range = (maxV - minV).let { if (it == 0f) 1f else it }
                     fun px(i: Int) = leftPad + plotW * i / (n - 1)
                     fun py(v: Float) = plotH * (1f - (v - minV) / range)
@@ -447,7 +688,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
                         val v = maxV - range * st / steps
                         val y = py(v)
                         drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-                        val lay = measurer.measure("$CURRENCY${v.toInt()}", TextStyle(fontSize = 13.sp, color = labelColor))
+                        val lay = measurer.measure(axisLabel(v, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
                         drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
                     }
                     drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = 1.5f)
@@ -462,13 +703,24 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
                         drawPath(path, sp.color, style = Stroke(width = 2.dp.toPx()))
                     }
 
+                    if (hoverIdx in 0 until n) {
+                        val hx = px(hoverIdx)
+                        drawLine(grid, Offset(hx, 0f), Offset(hx, plotH), strokeWidth = 1f)
+                        for (sp in series) {
+                            val v = sp.values.getOrNull(hoverIdx) ?: continue
+                            drawCircle(dotRing, radius = 5.dp.toPx(), center = Offset(hx, py(v)))
+                            drawCircle(sp.color, radius = 3.5.dp.toPx(), center = Offset(hx, py(v)))
+                        }
+                    }
+
                     val xn = minOf(5, n)
                     if (xn >= 2) for (k in 0 until xn) {
                         val i = k * (n - 1) / (xn - 1)
-                        val lay = measurer.measure(dates.getOrElse(i) { "" }, TextStyle(fontSize = 13.sp, color = labelColor))
+                        val lay = measurer.measure(dates.getOrElse(i) { "" }, TextStyle(fontSize = FontSize.sm, color = labelColor))
                         val x = (px(i) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
-                        drawText(lay, topLeft = Offset(x, plotH + 2f))
+                        drawText(lay, topLeft = Offset(x, plotH + 6f))
                     }
+                    drawAxisTitle(measurer, xLabel, labelColor, leftPad)
                 }
             }
         }
@@ -692,7 +944,7 @@ internal fun SectionCard(title: String, modifier: Modifier = Modifier, fill: Boo
                 title,
                 style = cardTitleStyle(),
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = Space.sm),
+                modifier = Modifier.padding(bottom = Space.md),
             )
             content()
         }

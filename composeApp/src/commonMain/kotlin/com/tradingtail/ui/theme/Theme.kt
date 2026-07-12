@@ -9,8 +9,8 @@ import androidx.compose.ui.graphics.Color
 import com.tradingtail.common.BigDecimal
 import com.tradingtail.common.ZERO
 
-// ponytail: colors only. M3 default Shapes (4/8/12/16) already match the spec, and money mono is
-// applied at the call sites via FontFamily.Monospace — no custom Typography/Shapes object needed yet.
+// ponytail: colors + a Tailwind-sized Typography (see AppTypography). M3 default Shapes (4/8/12/16)
+// already match the spec, and money mono is applied at call sites via FontFamily.Monospace.
 // Custom fonts (IBM Plex) are deferred polish; Monospace gives tabular digit alignment for free.
 
 // Dark-only app. Blue-black ground + slate surfaces, TraderVue green accent (matches dashboard mock).
@@ -68,7 +68,7 @@ val LocalTradeColors = staticCompositionLocalOf { DarkTradeColors }
 @Composable
 fun TradingTailTheme(content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalTradeColors provides DarkTradeColors) {
-        MaterialTheme(colorScheme = DarkColors, content = content)
+        MaterialTheme(colorScheme = DarkColors, typography = AppTypography, content = content)
     }
 }
 
