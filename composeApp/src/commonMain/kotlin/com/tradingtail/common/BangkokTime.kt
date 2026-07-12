@@ -9,3 +9,9 @@ expect fun formatBangkok(epochMillis: Long): String
 
 /** Parse a "yyyy-MM-dd HH:mm" Bangkok-local string back to epoch millis. Throws on bad input. */
 expect fun parseBangkok(text: String): Long
+
+/**
+ * Parse a "yyyy-MM-dd HH:mm:ss" Bangkok-local string to epoch millis. Seconds precision matters for
+ * PDF imports: two fills can share a minute (see WebullStatementParser), and FIFO orders by timestamp.
+ */
+expect fun parseBangkokSeconds(text: String): Long

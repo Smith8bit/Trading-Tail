@@ -7,7 +7,7 @@ import com.tradingtail.common.BigDecimal
 enum class Side { BUY, SELL }
 enum class Direction { LONG, SHORT }
 enum class InstrumentType { STOCK, OPTION, FUTURES, FOREX }
-enum class ExecutionSource { MANUAL, CSV }
+enum class ExecutionSource { MANUAL, CSV, PDF }
 
 /** A single fill — one CSV row or one leg of a manual entry. */
 @Entity(tableName = "executions")

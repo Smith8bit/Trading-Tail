@@ -38,6 +38,7 @@ kotlin {
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
+            implementation(libs.pdfbox)
         }
         val desktopTest by getting
         desktopTest.dependencies {

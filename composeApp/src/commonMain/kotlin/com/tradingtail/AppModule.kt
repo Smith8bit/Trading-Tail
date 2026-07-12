@@ -9,6 +9,7 @@ import com.tradingtail.domain.usecase.CalculatePnlByHour
 import com.tradingtail.domain.usecase.CalculatePnlBySymbol
 import com.tradingtail.domain.usecase.CalculateWinRate
 import com.tradingtail.domain.usecase.DeleteTrade
+import com.tradingtail.domain.usecase.ImportWebullPdf
 import com.tradingtail.domain.usecase.RebuildTradesForSymbol
 import com.tradingtail.domain.usecase.RecordQuickTrade
 
@@ -23,6 +24,7 @@ class AppModule(db: TradeDatabase) {
 
     private val rebuild = RebuildTradesForSymbol(executionRepo, tradeRepo, BuildTradesFromExecutions())
     val recordQuickTrade = RecordQuickTrade(executionRepo, rebuild)
+    val importWebullPdf = ImportWebullPdf(executionRepo, rebuild)
     val deleteTrade = DeleteTrade(executionRepo, rebuild)
     val calculateCalendarPnl = CalculateCalendarPnl()
     val calculateWinRate = CalculateWinRate()

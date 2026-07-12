@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -57,8 +58,11 @@ import androidx.compose.ui.window.DialogProperties
 import com.tradingtail.ui.analytics.AnalyticsScreen
 import com.tradingtail.ui.analytics.AnalyticsViewModel
 import com.tradingtail.ui.analytics.DashboardScreen
+import com.tradingtail.data.imports.ParsedFill
+import com.tradingtail.data.imports.pickPdfBytes
 import com.tradingtail.ui.calendar.CalendarScreen
 import com.tradingtail.ui.calendar.CalendarViewModel
+import com.tradingtail.ui.imports.ImportPreviewContent
 import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
 import com.tradingtail.ui.theme.TradingTailTheme
@@ -83,8 +87,19 @@ fun App(module: AppModule) {
     TradingTailTheme {
         var screen by remember { mutableStateOf(Screen.Dashboard) }
         var showEntry by remember { mutableStateOf(false) }
+        var importFills by remember { mutableStateOf<List<ParsedFill>?>(null) }
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
+
+        // Pick a Webull PDF → parse → stash fills for the confirm dialog. Desktop-only picker for now.
+        val onImport: () -> Unit = {
+            scope.launch {
+                val bytes = pickPdfBytes() ?: return@launch
+                runCatching { module.importWebullPdf.preview(bytes) }
+                    .onSuccess { importFills = it }
+                    .onFailure { snackbar.showSnackbar("Couldn't read that PDF") }
+            }
+        }
 
         val journalVm = remember { JournalViewModel(module.tradeRepo, module.deleteTrade) }
         val quickVm = remember { QuickTradeEntryViewModel(module.recordQuickTrade) }
@@ -121,7 +136,7 @@ fun App(module: AppModule) {
             ) { padding ->
                 if (wide) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        Sidebar(current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true })
+                        Sidebar(current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport)
                         VerticalDivider()
                         ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
                     }
@@ -154,6 +169,36 @@ fun App(module: AppModule) {
                 }
             }
         }
+
+        // Statement import: preview the parsed fills, then commit on confirm.
+        importFills?.let { fills ->
+            Dialog(
+                onDismissRequest = { importFills = null },
+                properties = DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                Surface(
+                    modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    ImportPreviewContent(
+                        fills = fills,
+                        onCancel = { importFills = null },
+                        onConfirm = {
+                            importFills = null
+                            scope.launch {
+                                val s = module.importWebullPdf.commit(fills)
+                                screen = Screen.Journal
+                                snackbar.showSnackbar(
+                                    if (s.skipped > 0) "Imported ${s.executions} executions · ${s.skipped} duplicates skipped"
+                                    else "Imported ${s.executions} executions across ${s.symbols} symbols",
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -164,7 +209,7 @@ private fun CaptureFab(onClick: () -> Unit) {
 
 /** Desktop sidebar, styled after the dashboard mock: gradient brand mark, nav, gradient CTA, account. */
 @Composable
-private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit) {
+private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit) {
     val accent = Brush.linearGradient(
         listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer),
     )
@@ -212,6 +257,9 @@ private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () 
             Spacer(Modifier.width(8.dp))
             Text("New Trade", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
         }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import statement") }
 
         // Account chip
         Row(

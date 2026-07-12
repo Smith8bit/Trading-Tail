@@ -21,11 +21,14 @@ data class ParsedFill(
 )
 
 /**
- * Pure parser for the page-3 TRADE RECORDS table. Kept free of any PDF dependency so it's unit-tested
- * against captured text; the platform PDF extractor just feeds it a String.
+ * Pure parser for the TRADE RECORDS table. Kept free of any PDF dependency so it's unit-tested against
+ * captured text; the platform PDF extractor just feeds it a String. Validated against real PDFBox output.
  *
- * ponytail: regex-per-row anchored on the trade-date column, so the variable-length company name that
- * precedes it is simply ignored — no fixed column offsets to break when spacing shifts.
+ * PDFBox emits each fill as three lines — ticker, company name, then the data row (which begins with the
+ * trade date). ponytail: match the data row by a regex anchored on that date, and carry the ticker from
+ * the most recent single-token all-caps line. Company names are multi-word so they never look like a
+ * ticker. Ceiling: a single-word all-caps ≤6-char company name would shadow its ticker — unseen in
+ * practice (real names carry INC/CORP/LTD); revisit if a broker prints bare one-word names.
  */
 object WebullStatementParser {
     // …name… 15/05/2026 20:17:19,GMT+07 18/05/2026 SELL 200 4.02 804.00 803.08 -0.86 -0.06 NASDAQ
