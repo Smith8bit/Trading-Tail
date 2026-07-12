@@ -32,6 +32,7 @@ import com.tradingtail.common.nowMillis
 import com.tradingtail.domain.usecase.CalculatePnlByHour
 import com.tradingtail.domain.usecase.CalculateWinRate
 import com.tradingtail.ui.theme.LocalTradeColors
+import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 
 /**
@@ -66,9 +67,9 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
         // ponytail: one breakpoint — <600dp (phones) collapses the fixed 480dp bands to a single column.
         val compact = maxWidth < 600.dp
         CompositionLocalProvider(LocalCompact provides compact) {
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = Space.md)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = Space.md, bottom = Space.sm),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -77,8 +78,8 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = Space.xs),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             // Section map (mirrors the mock's top-to-bottom flow):
             // 1 · day strip → 2 · stat tiles → 3 · win%/equity/volume/avg charts →
@@ -173,7 +174,7 @@ private fun Band(compact: Boolean, content: @Composable () -> Unit) {
     if (compact) {
         content()
     } else {
-        Row(Modifier.fillMaxWidth().height(WIDGET_UNIT), horizontalArrangement = Arrangement.spacedBy(12.dp)) { content() }
+        Row(Modifier.fillMaxWidth().height(WIDGET_UNIT), horizontalArrangement = Arrangement.spacedBy(Space.md)) { content() }
     }
 }
 
@@ -186,7 +187,7 @@ private fun PairCell(compact: Boolean, cell: Modifier, top: @Composable () -> Un
     if (compact) {
         top(); bottom()
     } else {
-        Column(modifier = cell, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = cell, verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Box(Modifier.weight(1f).fillMaxWidth()) { top() }
             Box(Modifier.weight(1f).fillMaxWidth()) { bottom() }
         }

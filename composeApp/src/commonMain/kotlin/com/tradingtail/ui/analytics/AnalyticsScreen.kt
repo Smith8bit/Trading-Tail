@@ -65,6 +65,7 @@ import com.tradingtail.domain.usecase.CalculateWinRate
 import com.tradingtail.domain.usecase.HourPnl
 import com.tradingtail.domain.usecase.WinRateSummary
 import com.tradingtail.ui.theme.LocalTradeColors
+import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 
 @Composable
@@ -89,12 +90,12 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
         // ponytail: one breakpoint — <600dp (phones) stacks every 2-up and scrolls overflowing bars.
         val compact = maxWidth < 600.dp
         CompositionLocalProvider(LocalCompact provides compact) {
-        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = Space.md)) {
         Text(
             "Reports",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+            modifier = Modifier.padding(top = Space.md, bottom = Space.sm),
         )
         DateRangeBar(fromDate, toDate, now) { f, t -> fromDate = f; toDate = t }
         // Underlined tab bar mirroring the mock's report tabs; only tabs we have data to back.
@@ -115,8 +116,8 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = Space.md),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             when (tab) {
                 0 -> {
@@ -144,7 +145,7 @@ private enum class ReportView { Recent, YearMonthDay }
 /** The mock's Recent | Year/Month/Day | Calendar view selector under the Overview tab. */
 @Composable
 private fun ReportViewToggle(current: ReportView, onOpenCalendar: () -> Unit, onSelect: (ReportView) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         ToggleChip("Recent", current == ReportView.Recent) { onSelect(ReportView.Recent) }
         ToggleChip("Year/Month/Day", current == ReportView.YearMonthDay) { onSelect(ReportView.YearMonthDay) }
         ToggleChip("Calendar", false, onOpenCalendar) // Calendar has its own nav destination
@@ -160,7 +161,7 @@ private fun DateRangeBar(from: BkkDate?, to: BkkDate?, now: Long, onRange: (BkkD
         modifier = Modifier.fillMaxWidth()
             .then(if (LocalCompact.current) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
             .padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PresetPicker(preset) { p -> preset = p; presetRange(p, now).let { onRange(it.first, it.second) } }
@@ -232,7 +233,7 @@ private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEnti
     val ew = remember(executions, period, hasFilter) { if (hasFilter) executions else executions.filter { it.timestamp >= cutoff } }
     val span = if (hasFilter) "Selected range" else "$period Days"
     val tc = LocalTradeColors.current
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         if (!hasFilter) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 PeriodToggle(period) { period = it }
@@ -257,7 +258,7 @@ private fun YearMonthDayView(trades: List<TradeEntity>, now: Long) {
     val years = remember(trades) { trades.map { it.tradeDay().year }.distinct().sorted() }
     var year by remember(years) { mutableStateOf(years.lastOrNull() ?: nowDate.year) }
     var month by remember { mutableStateOf(nowDate.month) }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         ChartPair(
             { m, fh -> BarChartCard("Trade Distribution by Year", remember(trades) { tradesByYear(trades) }, false, MaterialTheme.colorScheme.primary, m, fh) },
             { m, fh -> BarChartCard("Performance by Year", remember(trades) { pnlByYear(trades) }, true, tc.gain, m, fh) },
@@ -280,7 +281,7 @@ private fun YearMonthDayView(trades: List<TradeEntity>, now: Long) {
 private fun ChipRow(items: List<String>, selected: String, onSelect: (String) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (item in items) ToggleChip(item, item == selected) { onSelect(item) }
@@ -332,7 +333,7 @@ private fun DetailedView(trades: List<TradeEntity>, executions: List<ExecutionEn
  *  reports (ATR, SMA, relative volume, opening gap, day type, movement) need OHLC market data — deferred. */
 @Composable
 private fun InstrumentSection(trades: List<TradeEntity>, qtyById: (Long) -> BigDecimal?) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         TwoUp(
             { HBarChartCard("Performance by Symbol – Top 20", remember(trades) { pnlBySymbolTop(trades) }, performance = true, modifier = it) },
             { HBarChartCard("Performance by Symbol – Bottom 20", remember(trades) { pnlBySymbolBottom(trades) }, performance = true, modifier = it) },
@@ -347,7 +348,7 @@ private fun InstrumentSection(trades: List<TradeEntity>, qtyById: (Long) -> BigD
 private fun CategoryToggle(current: DetailCat, onSelect: (DetailCat) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         for (c in DetailCat.entries) ToggleChip(c.label, c == current) { onSelect(c) }
     }
@@ -443,7 +444,7 @@ private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntit
 private fun StatColumn(title: String, dot: Color, trades: List<TradeEntity>, executions: List<ExecutionEntity>, modifier: Modifier) {
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm), modifier = Modifier.padding(bottom = 8.dp)) {
                 Box(Modifier.size(9.dp).background(dot, RoundedCornerShape(3.dp)))
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
@@ -473,7 +474,7 @@ private fun StatCell(s: Stat, modifier: Modifier) {
 /** Days/Times category: paired distribution (count) + performance (P&L) bars per time bucket. */
 @Composable
 private fun DaysTimesSection(trades: List<TradeEntity>, byHour: List<HourPnl>) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         BreakdownPair("Trade Distribution by Day of Week", "Performance by Day of Week", remember(trades) { pnlByDayOfWeek(trades) })
         BreakdownPair("Trade Distribution by Hour of Day", "Performance by Hour of Day", remember(byHour) { hourWindow(byHour) })
         BreakdownPair("Trade Distribution by Month of Year", "Performance by Month of Year", remember(trades) { pnlByMonth(trades) })
@@ -485,7 +486,7 @@ private fun DaysTimesSection(trades: List<TradeEntity>, byHour: List<HourPnl>) {
 /** Price/Volume category: price + share-size buckets. In-trade price range needs market data (deferred). */
 @Composable
 private fun PriceVolumeSection(trades: List<TradeEntity>, priceById: (Long) -> BigDecimal?, qtyById: (Long) -> BigDecimal?) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         BreakdownPair("Trade Distribution by Price", "Performance by Price", remember(trades) { pnlByPrice(trades, priceById) })
         BreakdownPair("Distribution by Volume Traded", "Performance by Volume Traded", remember(trades) { pnlByVolumeTraded(trades, qtyById) })
         DeferredNote("In-Trade Price Range")
@@ -495,7 +496,7 @@ private fun PriceVolumeSection(trades: List<TradeEntity>, priceById: (Long) -> B
 /** Win/Loss/Expectation category: ratio donut, avg win/loss, expectancy, cumulative curve + drawdown. */
 @Composable
 private fun WinLossExpectationSection(trades: List<TradeEntity>, win: WinRateSummary) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         TwoUp(
             { WinnersCard(win, it) },
             { AveragesCard(remember(trades) { averages(trades) }, it) },
@@ -590,7 +591,7 @@ private fun WinLossDaysView(trades: List<TradeEntity>, executions: List<Executio
     val tc = LocalTradeColors.current
     var cat by remember { mutableStateOf(DetailCat.WinLoss) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         Text(
             "Winning/losing classified by each day's net P&L, across all trade durations in the filtered range.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -664,7 +665,7 @@ private fun DrawdownView(trades: List<TradeEntity>) {
     val tc = LocalTradeColors.current
     val amber = Color(0xFFF59E0B) // one chart-only accent for the upper volatility band
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         DrawdownStatsCard(remember(trades) { drawdownStats(trades) })
         TwoUp(
             { Breakdown("Drawdown Increase Distribution by Day of Week", remember(trades) { drawdownIncreaseByDayOfWeek(trades) }, byCount = true, modifier = it) },

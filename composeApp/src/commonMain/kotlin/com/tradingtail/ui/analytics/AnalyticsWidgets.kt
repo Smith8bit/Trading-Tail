@@ -51,6 +51,8 @@ import com.tradingtail.common.ZERO
 import com.tradingtail.common.formatMoney
 import com.tradingtail.domain.usecase.WinRateSummary
 import com.tradingtail.ui.theme.LocalTradeColors
+import com.tradingtail.ui.theme.Radii
+import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 
 // ---------------------------------------------------------------------------------------------
@@ -73,7 +75,7 @@ internal fun TwoUp(a: @Composable (Modifier) -> Unit, b: @Composable (Modifier) 
     if (LocalCompact.current) {
         a(Modifier.fillMaxWidth()); b(Modifier.fillMaxWidth())
     } else {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
             a(Modifier.weight(1f)); b(Modifier.weight(1f))
         }
     }
@@ -88,7 +90,7 @@ internal fun ChartPair(a: @Composable (Modifier, Boolean) -> Unit, b: @Composabl
     if (LocalCompact.current) {
         a(Modifier.fillMaxWidth(), false); b(Modifier.fillMaxWidth(), false)
     } else {
-        Row(Modifier.fillMaxWidth().height(320.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().height(320.dp), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
             a(Modifier.weight(1f).fillMaxHeight(), true); b(Modifier.weight(1f).fillMaxHeight(), true)
         }
     }
@@ -100,8 +102,8 @@ internal fun ToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
-        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(bg)
-            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        modifier = Modifier.clip(RoundedCornerShape(Radii.md)).background(bg)
+            .clickable(onClick = onClick).padding(horizontal = Space.md, vertical = Space.sm),
     ) {
         Text(text, color = fg, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
     }
@@ -110,7 +112,7 @@ internal fun ToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
 /** 30/60/90-day window selector from the mock's dashboard header. */
 @Composable
 internal fun PeriodToggle(period: Int, onSelect: (Int) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         for (p in listOf(30, 60, 90)) ToggleChip("$p Days", p == period) { onSelect(p) }
     }
 }
@@ -120,20 +122,20 @@ internal fun PeriodToggle(period: Int, onSelect: (Int) -> Unit) {
 internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
     // ponytail: on a phone, 7 equal cells = ~41dp each and the ฿ value clips — scroll + min-width instead.
     val compact = LocalCompact.current
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         Text(rangeLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
         Row(
             modifier = Modifier.fillMaxWidth()
                 .then(if (compact) Modifier.horizontalScroll(rememberScrollState()) else Modifier),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             for (d in days) {
                 val border = if (d.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                 Column(
                     modifier = (if (compact) Modifier.widthIn(min = 92.dp) else Modifier.weight(1f))
                         .height(84.dp)
-                        .border(1.dp, border, RoundedCornerShape(8.dp))
-                        .padding(10.dp),
+                        .border(1.dp, border, RoundedCornerShape(Radii.md))
+                        .padding(Space.md),
                 ) {
                     Text(
                         "${d.day} ${d.dow}",
@@ -165,7 +167,7 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
 @Composable
 internal fun KpiTile(label: String, value: String, valueColor: Color = Color.Unspecified, modifier: Modifier = Modifier) {
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(Space.lg)) {
             Text(
                 label,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -177,8 +179,8 @@ internal fun KpiTile(label: String, value: String, valueColor: Color = Color.Uns
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.headlineSmall,
-                // ponytail: large ฿ figures wrap rather than ellipsize — the primary number stays readable.
-                modifier = Modifier.padding(top = 8.dp),
+                // ponytail: large figures wrap rather than ellipsize — the primary number stays readable.
+                modifier = Modifier.padding(top = Space.sm),
             )
         }
     }
@@ -190,7 +192,7 @@ internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: Big
     val colors = LocalTradeColors.current
     val line = if (total < ZERO) colors.loss else colors.gain
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(16.dp)) {
+        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text("Cumulative P&L", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
                 formatMoney(total),
@@ -198,7 +200,7 @@ internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: Big
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = Space.xs, bottom = Space.md),
             )
             if (series.size < 2) {
                 Text("Close a few trades to plot the curve.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -214,7 +216,7 @@ internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: Big
 internal fun DrawdownCard(series: List<Float>, dates: List<String>, maxDd: BigDecimal, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
     val colors = LocalTradeColors.current
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(16.dp)) {
+        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text("Cumulative Drawdown", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             val shown = ZERO.subtract(maxDd) // report the max drawdown as a signed loss figure
             Text(
@@ -223,7 +225,7 @@ internal fun DrawdownCard(series: List<Float>, dates: List<String>, maxDd: BigDe
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = Space.xs, bottom = Space.md),
             )
             if (series.size < 2) {
                 Text("Close a few trades to plot drawdown.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -293,8 +295,8 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
     val grid = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(16.dp)) {
-            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
+            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
             if (points.isEmpty()) {
                 Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
@@ -369,7 +371,7 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
             val axisPx = axisH.toPx()
             val plotBottom = size.height - axisPx
             val labelStyle = TextStyle(fontSize = 12.sp, color = labelColor)
-            val tickStyle = TextStyle(fontSize = 11.sp, color = labelColor)
+            val tickStyle = TextStyle(fontSize = 12.sp, color = labelColor)
             val maxLabelW = buckets.maxOf { measurer.measure(it.label, labelStyle).size.width }
             val leftPad = (maxLabelW + 10f).coerceAtMost(size.width * 0.42f)
             val plotW = size.width - leftPad
@@ -423,8 +425,8 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val n = series.firstOrNull()?.values?.size ?: 0
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+        Column(modifier = Modifier.padding(Space.lg)) {
+            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
             if (n < 2) {
                 Text("Not enough data to create this chart.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
@@ -477,10 +479,10 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
 @Composable
 internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Color, track: Color, modifier: Modifier = Modifier) {
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.fillMaxHeight().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(modifier = Modifier.fillMaxHeight().padding(Space.lg), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
             // Centered in the remaining (square) space: the dial with its value sitting in the arc.
-            Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(top = Space.md), contentAlignment = Alignment.Center) {
                 Box(contentAlignment = Alignment.BottomCenter) {
                     Canvas(modifier = Modifier.fillMaxWidth().height(72.dp)) {
                         val stroke = 14.dp.toPx()
@@ -503,9 +505,9 @@ internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Co
 @Composable
 internal fun PlaceholderCard(title: String, modifier: Modifier = Modifier) {
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp).height(56.dp)) {
+        Column(modifier = Modifier.padding(Space.lg).height(56.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("n/a — needs market data", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+            Text("n/a — needs market data", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Space.xs))
         }
     }
 }
@@ -514,7 +516,7 @@ internal fun PlaceholderCard(title: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun AveragesCard(avg: Averages, modifier: Modifier = Modifier) {
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Average Winning Trade vs Losing Trade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             FigureRow("Average trade", avg.perTrade)
             FigureRow("Average winner", avg.perWinner)
@@ -527,7 +529,7 @@ internal fun AveragesCard(avg: Averages, modifier: Modifier = Modifier) {
 @Composable
 internal fun HoldTimeCard(winnerMs: Long?, loserMs: Long?, modifier: Modifier = Modifier) {
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Hold Time Winning Trades vs Losing Trades", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             DurationRow("Winners", winnerMs)
             DurationRow("Losers", loserMs)
@@ -554,15 +556,15 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
     val colors = LocalTradeColors.current
     val decided = win.wins + win.losses
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = Space.md),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(Space.md),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Canvas(modifier = Modifier.size(88.dp)) {
+                    Canvas(modifier = Modifier.size(72.dp)) {
                         val stroke = 12.dp.toPx()
                         drawArc(
                             color = colors.loss,
@@ -584,10 +586,10 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
                         style = MaterialTheme.typography.titleSmall,
                     )
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     LegendRow(colors.gain, "Winners", win.wins)
                     LegendRow(colors.loss, "Losers", win.losses)
-                    LegendRow(MaterialTheme.colorScheme.onSurfaceVariant, "Break-even", win.breakeven)
+                    LegendRow(MaterialTheme.colorScheme.onSurfaceVariant, "Scratch", win.breakeven)
                 }
             }
         }
@@ -596,9 +598,9 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
 
 @Composable
 internal fun LegendRow(dot: Color, label: String, count: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         Box(Modifier.size(9.dp).background(dot, RoundedCornerShape(3.dp)))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Text(
             count.toString(),
             fontFamily = FontFamily.Monospace,
@@ -612,7 +614,7 @@ internal fun LegendRow(dot: Color, label: String, count: Int) {
 @Composable
 internal fun BestWorstCard(bw: BestWorst, modifier: Modifier = Modifier) {
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Largest Gain vs Largest Loss", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             FigureRow("Largest gain", bw.largestGain)
             FigureRow("Largest loss", bw.largestLoss)
@@ -647,7 +649,7 @@ internal fun BarRow(label: String, pnl: BigDecimal, max: BigDecimal, percent: Fl
         pnl < ZERO -> colors.loss
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 label,
@@ -674,7 +676,7 @@ internal fun BarRow(label: String, pnl: BigDecimal, max: BigDecimal, percent: Fl
             )
         }
         Box(
-            modifier = Modifier.fillMaxWidth().padding(top = 5.dp).height(4.dp)
+            modifier = Modifier.fillMaxWidth().padding(top = Space.xs).height(4.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(2.dp)),
         ) {
             Box(Modifier.fillMaxWidth(frac).height(4.dp).background(barColor, RoundedCornerShape(2.dp)))
@@ -685,12 +687,12 @@ internal fun BarRow(label: String, pnl: BigDecimal, max: BigDecimal, percent: Fl
 @Composable
 internal fun SectionCard(title: String, modifier: Modifier = Modifier, fill: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = (if (fill) Modifier.fillMaxHeight() else Modifier).padding(16.dp)) {
+        Column(modifier = (if (fill) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text(
                 title,
                 style = cardTitleStyle(),
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp),
+                modifier = Modifier.padding(bottom = Space.sm),
             )
             content()
         }
@@ -733,7 +735,7 @@ internal fun BucketSection(title: String, buckets: List<BucketPnl>, modifier: Mo
 @Composable
 private fun PageBar(page: Int, count: Int, onPage: (Int) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = Space.sm),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -742,7 +744,7 @@ private fun PageBar(page: Int, count: Int, onPage: (Int) -> Unit) {
             "${page + 1} / $count",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 6.dp),
+            modifier = Modifier.padding(horizontal = Space.sm),
         )
         Arrow("›", page < count - 1) { onPage(page + 1) }
     }
@@ -755,6 +757,6 @@ private fun Arrow(glyph: String, enabled: Boolean, onClick: () -> Unit) {
         color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = 8.dp, vertical = 2.dp),
+        modifier = Modifier.clip(RoundedCornerShape(Radii.md)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = Space.sm, vertical = 2.dp),
     )
 }

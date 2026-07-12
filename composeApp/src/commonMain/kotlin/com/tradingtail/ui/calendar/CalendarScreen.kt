@@ -59,6 +59,7 @@ import com.tradingtail.data.local.entity.TradeEntity
 import com.tradingtail.data.repository.TradeRepository
 import com.tradingtail.domain.usecase.CalculateCalendarPnl
 import com.tradingtail.domain.usecase.DayPnl
+import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -90,10 +91,10 @@ fun CalendarScreen(vm: CalendarViewModel, modifier: Modifier = Modifier) {
 
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
-            modifier = Modifier.widthIn(max = 1500.dp).fillMaxWidth().padding(16.dp)
+            modifier = Modifier.widthIn(max = 1500.dp).fillMaxWidth().padding(Space.lg)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.xl),
         ) {
             MonthCard(
                 ym = ym,
@@ -147,7 +148,7 @@ private fun MonthCard(
         .values.fold(ZERO) { acc, d -> acc.add(d.pnl) }
 
     OutlinedCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(Space.lg)) {
             // Header: month name (with nav) left, running monthly P&L right.
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -297,14 +298,14 @@ private fun YearOverview(
     onOpen: (YearMonth) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Space.md)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onPrevYear) { Text("‹") }
             Text("$year", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             TextButton(onClick = onNextYear) { Text("›") }
         }
         (1..12).chunked(4).forEach { rowMonths ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
                 for (m in rowMonths) {
                     val ym = YearMonth(year, m)
                     MiniMonth(ym, active == ym, byDay, onOpen = { onOpen(ym) }, modifier = Modifier.weight(1f))
@@ -317,9 +318,9 @@ private fun YearOverview(
 @Composable
 private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayPnl>, onOpen: () -> Unit, modifier: Modifier) {
     OutlinedCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(Space.md)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = Space.sm),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -378,7 +379,7 @@ private fun Pill(text: String, active: Boolean, onClick: () -> Unit) {
         modifier = Modifier.clip(RoundedCornerShape(6.dp))
             .border(1.dp, if (active) c else c.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 7.dp),
+            .padding(horizontal = Space.lg, vertical = Space.sm),
     ) {
         Text(text, color = c, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
     }
@@ -391,9 +392,9 @@ private fun Pill(text: String, active: Boolean, onClick: () -> Unit) {
 @Composable
 private fun DaySheet(date: BkkDate, dayTrades: List<TradeEntity>) {
     val total = dayTrades.fold(ZERO) { acc, t -> acc.add(t.realizedPnl) }
-    Column(modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = Space.lg, end = Space.lg, bottom = Space.xl)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = Space.sm),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text("${date.year}-${pad(date.month)}-${pad(date.day)}", fontWeight = FontWeight.Bold)
