@@ -25,8 +25,12 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -36,6 +40,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -65,6 +70,7 @@ import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.imports.ImportPreviewContent
 import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
+import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.TradingTailTheme
 import com.tradingtail.ui.tradeentry.QuickTradeEntryScreen
 import com.tradingtail.ui.tradeentry.QuickTradeEntryViewModel
@@ -91,7 +97,7 @@ fun App(module: AppModule) {
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
 
-        // Pick a Webull PDF → parse → stash fills for the confirm dialog. Desktop-only picker for now.
+        // Pick a Webull PDF → parse → stash fills for the confirm dialog.
         val onImport: () -> Unit = {
             scope.launch {
                 val bytes = pickPdfBytes() ?: return@launch
@@ -118,6 +124,7 @@ fun App(module: AppModule) {
             val wide = maxWidth >= 600.dp
             Scaffold(
                 snackbarHost = { SnackbarHost(snackbar) },
+                topBar = { if (!wide) MobileTopBar(onImport) },
                 bottomBar = {
                     if (!wide) {
                         NavigationBar {
@@ -152,20 +159,26 @@ fun App(module: AppModule) {
                 onDismissRequest = { showEntry = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
-                Surface(
-                    modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
-                    QuickTradeEntryScreen(
-                        vm = quickVm,
-                        onBack = { showEntry = false },
-                        onSaved = {
-                            showEntry = false
-                            screen = Screen.Journal
-                            scope.launch { snackbar.showSnackbar("Trade recorded") }
-                        },
-                    )
+                BoxWithConstraints {
+                    // compact measures the real window, not the dialog's own ≤560dp width (which would
+                    // always read narrow) — same threshold as the rest of the app.
+                    val compact = maxWidth < 600.dp
+                    Surface(
+                        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(if (compact) 0.96f else 0.92f).heightIn(max = 640.dp),
+                        shape = RoundedCornerShape(Radii.xl),
+                        color = MaterialTheme.colorScheme.surface,
+                    ) {
+                        QuickTradeEntryScreen(
+                            vm = quickVm,
+                            onBack = { showEntry = false },
+                            onSaved = {
+                                showEntry = false
+                                screen = Screen.Journal
+                                scope.launch { snackbar.showSnackbar("Trade recorded") }
+                            },
+                            compact = compact,
+                        )
+                    }
                 }
             }
         }
@@ -205,6 +218,27 @@ fun App(module: AppModule) {
 @Composable
 private fun CaptureFab(onClick: () -> Unit) {
     FloatingActionButton(onClick = onClick) { Icon(Icons.Filled.Add, contentDescription = "Record trade") }
+}
+
+// Narrow layout has no sidebar, so "Import statement" moves into an overflow menu here.
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun MobileTopBar(onImport: () -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
+    TopAppBar(
+        title = { Text("Trading Tail") },
+        actions = {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "More")
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Import statement") },
+                    onClick = { menuOpen = false; onImport() },
+                )
+            }
+        },
+    )
 }
 
 /** Desktop sidebar, styled after the dashboard mock: gradient brand mark, nav, gradient CTA, account. */

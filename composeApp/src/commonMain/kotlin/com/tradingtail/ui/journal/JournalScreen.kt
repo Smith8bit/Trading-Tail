@@ -1,7 +1,7 @@
 package com.tradingtail.ui.journal
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +39,7 @@ import com.tradingtail.common.formatMoney
 import com.tradingtail.data.local.entity.TradeEntity
 import com.tradingtail.data.repository.TradeRepository
 import com.tradingtail.domain.usecase.DeleteTrade
+import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
@@ -59,12 +58,16 @@ fun JournalScreen(vm: JournalViewModel, modifier: Modifier = Modifier) {
 
     if (trades.isEmpty()) {
         Column(
-            modifier = modifier.fillMaxSize().padding(24.dp),
+            modifier = modifier.fillMaxSize().padding(Space.xl),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             Text("No trades yet", style = MaterialTheme.typography.titleMedium)
-            Text("Tap ＋ to record your first.", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Tap ＋ to record your first.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         return
     }
@@ -72,15 +75,18 @@ fun JournalScreen(vm: JournalViewModel, modifier: Modifier = Modifier) {
     // Grouped by trade day (entry/open day); trades arrive newest-first (DAO orders by exit DESC).
     val byDay = trades.groupBy { bkkDate(it.entryTimestamp) }.toList()
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        byDay.forEach { (day, dayTrades) ->
-            val subtotal = dayTrades.fold(ZERO) { acc, t -> acc.add(t.realizedPnl) }
-            item(key = "h-$day") { DayHeader(day, subtotal) }
-            items(dayTrades, key = { it.id }) { trade ->
-                TradeRow(trade, onDelete = { scope.launch { vm.delete(trade) } })
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val compact = maxWidth < 600.dp
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(if (compact) Space.sm else Space.lg),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
+        ) {
+            byDay.forEach { (day, dayTrades) ->
+                val subtotal = dayTrades.fold(ZERO) { acc, t -> acc.add(t.realizedPnl) }
+                item(key = "h-$day") { DayHeader(day, subtotal) }
+                items(dayTrades, key = { it.id }) { trade ->
+                    TradeRow(trade, onDelete = { scope.launch { vm.delete(trade) } })
+                }
             }
         }
     }
@@ -89,7 +95,7 @@ fun JournalScreen(vm: JournalViewModel, modifier: Modifier = Modifier) {
 @Composable
 private fun DayHeader(day: BkkDate, subtotal: BigDecimal) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = Space.sm, bottom = Space.xs),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
@@ -110,23 +116,23 @@ private fun DayHeader(day: BkkDate, subtotal: BigDecimal) {
 
 @Composable
 private fun TradeRow(trade: TradeEntity, onDelete: () -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
     var confirmOpen by remember { mutableStateOf(false) }
 
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = Space.md, top = Space.xs, bottom = Space.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+            Column(modifier = Modifier.weight(1f).padding(vertical = Space.sm)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(end = Space.sm),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(trade.symbol, fontWeight = FontWeight.Bold)
+                    Text(trade.symbol, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Text(
                         formatMoney(trade.realizedPnl),
                         color = pnlColor(trade.realizedPnl),
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                     )
@@ -137,16 +143,8 @@ private fun TradeRow(trade: TradeEntity, onDelete: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "More")
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = { menuOpen = false; confirmOpen = true },
-                    )
-                }
+            IconButton(onClick = { confirmOpen = true }) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete trade")
             }
         }
     }
