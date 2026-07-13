@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,7 +65,8 @@ fun JournalScreen(vm: JournalViewModel, modifier: Modifier = Modifier) {
         ) {
             Text("No trades yet", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Tap ＋ to record your first.",
+                // Device-neutral: mobile capture is a ＋ FAB, desktop is the "New Trade" button — name neither.
+                "Record your first trade to get started.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -154,7 +156,13 @@ private fun TradeRow(trade: TradeEntity, onDelete: () -> Unit) {
             onDismissRequest = { confirmOpen = false },
             title = { Text("Delete trade?") },
             text = { Text("${trade.symbol} ${formatMoney(trade.realizedPnl)} — this can't be undone.") },
-            confirmButton = { TextButton(onClick = { confirmOpen = false; onDelete() }) { Text("Delete") } },
+            confirmButton = {
+                // Loss Red, not the go-action green: this is a destructive, irreversible confirm.
+                TextButton(
+                    onClick = { confirmOpen = false; onDelete() },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete") }
+            },
             dismissButton = { TextButton(onClick = { confirmOpen = false }) { Text("Cancel") } },
         )
     }

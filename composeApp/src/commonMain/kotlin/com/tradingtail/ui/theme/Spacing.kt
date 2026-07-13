@@ -1,5 +1,7 @@
 package com.tradingtail.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
 /**
@@ -16,10 +18,24 @@ object Space {
     val xxl = 32.dp
 }
 
-/** Corner radii, matching DESIGN.md `rounded` (sm 4 / md 8 / lg 12 / xl 16). */
+/**
+ * Corner radii — the "Modern Terminal" scale (sm 8 / md 10 / lg 14 / xl 18 + pill), softer/larger than
+ * the old 4/8/12/16 to suit the bento + immersive direction. [AppShapes] feeds these to M3 components
+ * (Card, TextField, Sheet) so the whole surface rounds from one place; buttons stay [pill].
+ */
 object Radii {
-    val sm = 4.dp
-    val md = 8.dp
-    val lg = 12.dp
-    val xl = 16.dp
+    val sm = 8.dp
+    val md = 10.dp
+    val lg = 14.dp
+    val xl = 18.dp
+    val pill = 999.dp
 }
+
+/** M3 shape roles mapped onto [Radii] — extraSmall→fields, small→controls, medium→tiles, large→sheets. */
+val AppShapes = Shapes(
+    extraSmall = RoundedCornerShape(Radii.sm),
+    small = RoundedCornerShape(Radii.md),
+    medium = RoundedCornerShape(Radii.lg),
+    large = RoundedCornerShape(Radii.xl),
+    extraLarge = RoundedCornerShape(24.dp),
+)

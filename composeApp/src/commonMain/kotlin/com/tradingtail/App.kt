@@ -3,6 +3,7 @@ package com.tradingtail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,12 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -40,6 +37,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -51,6 +49,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -70,6 +70,7 @@ import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.imports.ImportPreviewContent
 import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
+import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.TradingTailTheme
 import com.tradingtail.ui.tradeentry.QuickTradeEntryScreen
@@ -122,17 +123,20 @@ fun App(module: AppModule) {
 
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp
+            ImmersiveBackground(Modifier.matchParentSize())
             Scaffold(
+                containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
                 topBar = { if (!wide) MobileTopBar(onImport) },
                 bottomBar = {
                     if (!wide) {
-                        NavigationBar {
+                        NavigationBar(containerColor = LocalTradeColors.current.glass, tonalElevation = 0.dp) {
                             Screen.entries.forEach { s ->
                                 NavigationBarItem(
                                     selected = screen == s,
                                     onClick = { screen = s },
-                                    icon = { Icon(s.icon, contentDescription = s.label) },
+                                    // label below carries the accessible name — null avoids a double read.
+                                    icon = { Icon(s.icon, contentDescription = null) },
                                     label = { Text(s.label) },
                                 )
                             }
@@ -191,7 +195,7 @@ fun App(module: AppModule) {
             ) {
                 Surface(
                     modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(Radii.xl),
                     color = MaterialTheme.colorScheme.surface,
                 ) {
                     ImportPreviewContent(
@@ -220,36 +224,32 @@ private fun CaptureFab(onClick: () -> Unit) {
     FloatingActionButton(onClick = onClick) { Icon(Icons.Filled.Add, contentDescription = "Record trade") }
 }
 
-// Narrow layout has no sidebar, so "Import statement" moves into an overflow menu here.
+// Narrow layout has no sidebar, so Import is a direct top-bar action — one tap, always visible —
+// instead of hiding a single item behind an overflow menu.
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun MobileTopBar(onImport: () -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
     TopAppBar(
         title = { Text("Trading Tail") },
         actions = {
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Import statement") },
-                    onClick = { menuOpen = false; onImport() },
-                )
-            }
+            TextButton(onClick = onImport) { Text("Import") }
         },
+        // Glass edge over the immersive canvas.
+        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+            containerColor = LocalTradeColors.current.glass,
+        ),
     )
 }
 
-/** Desktop sidebar, styled after the dashboard mock: gradient brand mark, nav, gradient CTA, account. */
+/** Desktop sidebar, styled after the dashboard mock: solid brand mark, nav, primary CTA, account. */
 @Composable
 private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit) {
-    val accent = Brush.linearGradient(
-        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer),
-    )
+    val tc = LocalTradeColors.current
     Column(
         modifier = Modifier.fillMaxHeight().width(232.dp)
-            .background(MaterialTheme.colorScheme.surface)
+            // Glass edge: translucent panel over the immersive canvas, so the ambient glow bleeds through.
+            // ponytail: real backdrop blur needs the Haze lib; translucency reads as glass-lite, no new dep.
+            .background(tc.glass)
             .padding(horizontal = 12.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -260,7 +260,7 @@ private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () 
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Box(
-                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)).background(accent),
+                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(Radii.md)).background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(BarChartIcon, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(17.dp))
@@ -269,7 +269,7 @@ private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () 
                 Text("Trading", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Tail",
-                    color = MaterialTheme.colorScheme.primary,
+                    color = tc.accent,
                     fontWeight = FontWeight.SemiBold,
                     style = MaterialTheme.typography.titleMedium,
                 )
@@ -280,9 +280,9 @@ private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () 
 
         Spacer(Modifier.weight(1f))
 
-        // Gradient "New Trade" CTA
+        // "New Trade" CTA — solid Signal Green, matching the "Record trade" button
         Row(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(accent)
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.md)).background(MaterialTheme.colorScheme.primary)
                 .clickable(onClick = onNewTrade).padding(vertical = 11.dp),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
@@ -319,11 +319,12 @@ private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () 
 
 @Composable
 private fun NavItem(screen: Screen, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.13f) else Color.Transparent
+    val tc = LocalTradeColors.current
+    val bg = if (selected) tc.accent.copy(alpha = 0.15f) else Color.Transparent
     val fg = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-    val iconTint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val iconTint = if (selected) tc.accent else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(bg)
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.md)).background(bg)
             .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -342,8 +343,8 @@ private fun ScreenContent(
     analyticsVm: AnalyticsViewModel,
     modifier: Modifier,
 ) {
-    // Content sits on the darker canvas so the lighter `surface` cards read as raised (like the mock).
-    Surface(modifier = modifier, color = MaterialTheme.colorScheme.background) {
+    // Transparent so the immersive canvas + glow show through the bento tile gaps; tiles stay opaque surface.
+    Surface(modifier = modifier, color = Color.Transparent) {
         when (screen) {
             Screen.Dashboard -> DashboardScreen(analyticsVm)
             Screen.Journal -> JournalScreen(journalVm)
@@ -351,6 +352,37 @@ private fun ScreenContent(
             Screen.Analytics -> AnalyticsScreen(analyticsVm, onOpenCalendar = { onNavigate(Screen.Calendar) })
         }
     }
+}
+
+/**
+ * The immersive ground: the base canvas plus two faint Webull-blue radial glows (top-right, bottom-left).
+ * Subtle — the accent is data-quiet chrome, not decoration — and near-invisible in light. Drawn once,
+ * behind the whole shell, so glass edges and bento gaps reveal it.
+ */
+@Composable
+private fun ImmersiveBackground(modifier: Modifier) {
+    val base = MaterialTheme.colorScheme.background
+    val accent = MaterialTheme.colorScheme.primary
+    val dark = isSystemInDarkTheme()
+    val a1 = if (dark) 0.16f else 0.06f
+    val a2 = if (dark) 0.10f else 0.04f
+    Box(modifier.drawBehind {
+        drawRect(base)
+        drawRect(
+            Brush.radialGradient(
+                colors = listOf(accent.copy(alpha = a1), Color.Transparent),
+                center = Offset(size.width * 0.82f, size.height * -0.02f),
+                radius = size.maxDimension * 0.55f,
+            ),
+        )
+        drawRect(
+            Brush.radialGradient(
+                colors = listOf(accent.copy(alpha = a2), Color.Transparent),
+                center = Offset(size.width * -0.02f, size.height * 1.02f),
+                radius = size.maxDimension * 0.5f,
+            ),
+        )
+    })
 }
 
 // ponytail: a 3-bar glyph built by hand instead of adding the whole material-icons-extended artifact

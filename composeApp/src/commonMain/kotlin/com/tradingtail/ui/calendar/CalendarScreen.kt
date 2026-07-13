@@ -435,7 +435,7 @@ private fun DaySheet(date: BkkDate, dayTrades: List<TradeEntity>) {
         if (dayTrades.isEmpty()) Text("No trades.", style = MaterialTheme.typography.bodyMedium)
         for (t in dayTrades) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text("${t.symbol}   ${formatBangkok(t.exitTimestamp)}", style = MaterialTheme.typography.bodyMedium)

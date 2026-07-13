@@ -1,11 +1,15 @@
 package com.tradingtail.ui.tradeentry
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,6 +19,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +48,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.bigDecimal
 import com.tradingtail.common.bkkDate
@@ -83,7 +89,7 @@ class QuickTradeEntryViewModel(private val record: RecordQuickTrade) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun QuickTradeEntryScreen(
     vm: QuickTradeEntryViewModel,
@@ -107,12 +113,23 @@ fun QuickTradeEntryScreen(
     var exitErr by remember { mutableStateOf<String?>(null) }
     var entryTsErr by remember { mutableStateOf<String?>(null) }
     var exitTsErr by remember { mutableStateOf<String?>(null) }
+    var entryFeesErr by remember { mutableStateOf<String?>(null) }
+    var exitFeesErr by remember { mutableStateOf<String?>(null) }
+    var submitting by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     val symbolFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { symbolFocus.requestFocus() }
+
+    // One requester per form row so a failed submit scrolls the *first failing* field into view,
+    // not always the top (which would hide any error below Symbol).
+    val symbolBiv = remember { BringIntoViewRequester() }
+    val qtyBiv = remember { BringIntoViewRequester() }
+    val entryRowBiv = remember { BringIntoViewRequester() }
+    val exitRowBiv = remember { BringIntoViewRequester() }
+    val feesRowBiv = remember { BringIntoViewRequester() }
 
     // ponytail: hosted in a Dialog by the caller (App.kt), so no Scaffold/TopAppBar — just a compact
     // header + a scrolling field area. `weight(1f, fill = false)` lets the card wrap short forms yet
@@ -137,21 +154,35 @@ fun QuickTradeEntryScreen(
             // ponytail: long-only (v1) — direction is always LONG, so no direction picker. Single quantity:
             // a quick trade is a full round-trip (entry qty == exit qty).
             Field(
-                symbol, { symbol = it }, "Symbol", error = symbolErr,
-                capitalizeWords = true, focusRequester = symbolFocus,
+                symbol, { symbol = it }, "Symbol",
+                modifier = Modifier.fillMaxWidth().bringIntoViewRequester(symbolBiv),
+                error = symbolErr, capitalizeWords = true, focusRequester = symbolFocus,
             )
-            Field(quantity, { quantity = it }, "Quantity", keyboardType = KeyboardType.Decimal, error = qtyErr)
-            Row(horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm)) {
+            Field(
+                quantity, { quantity = it }, "Quantity",
+                modifier = Modifier.fillMaxWidth().bringIntoViewRequester(qtyBiv),
+                keyboardType = KeyboardType.Decimal, error = qtyErr,
+            )
+            Row(
+                modifier = Modifier.bringIntoViewRequester(entryRowBiv),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm),
+            ) {
                 Field(entryPrice, { entryPrice = it }, "Entry price", Modifier.weight(1f), KeyboardType.Decimal, entryErr)
                 DateTimeField(entryTs, { entryTs = it }, "Entry time", Modifier.weight(1f), entryTsErr)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm)) {
+            Row(
+                modifier = Modifier.bringIntoViewRequester(exitRowBiv),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm),
+            ) {
                 Field(exitPrice, { exitPrice = it }, "Exit price", Modifier.weight(1f), KeyboardType.Decimal, exitErr)
                 DateTimeField(exitTs, { exitTs = it }, "Exit time", Modifier.weight(1f), exitTsErr)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm)) {
-                Field(entryFees, { entryFees = it }, "Entry fee", Modifier.weight(1f), KeyboardType.Decimal)
-                Field(exitFees, { exitFees = it }, "Exit fee", Modifier.weight(1f), KeyboardType.Decimal, imeAction = ImeAction.Done)
+            Row(
+                modifier = Modifier.bringIntoViewRequester(feesRowBiv),
+                horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm),
+            ) {
+                Field(entryFees, { entryFees = it }, "Entry fee", Modifier.weight(1f), KeyboardType.Decimal, entryFeesErr)
+                Field(exitFees, { exitFees = it }, "Exit fee", Modifier.weight(1f), KeyboardType.Decimal, exitFeesErr, imeAction = ImeAction.Done)
             }
 
             Button(
@@ -162,17 +193,44 @@ fun QuickTradeEntryScreen(
                     exitErr = numError(exitPrice)
                     entryTsErr = dateError(entryTs)
                     exitTsErr = dateError(exitTs)
-                    if (listOf(symbolErr, qtyErr, entryErr, exitErr, entryTsErr, exitTsErr).all { it == null }) {
+                    entryFeesErr = feeError(entryFees)
+                    exitFeesErr = feeError(exitFees)
+                    val valid = listOf(
+                        symbolErr, qtyErr, entryErr, exitErr,
+                        entryTsErr, exitTsErr, entryFeesErr, exitFeesErr,
+                    ).all { it == null }
+                    if (valid) {
+                        submitting = true
                         scope.launch {
                             status = vm.submit(symbol, quantity, entryPrice, exitPrice, entryTs, exitTs, entryFees, exitFees)
                                 .fold(onSuccess = { onSaved(); null }, onFailure = { it.message ?: "Invalid input" })
+                            submitting = false
                         }
                     } else {
-                        scope.launch { scrollState.animateScrollTo(0) } // first error (Symbol) may be scrolled out of view
+                        // Scroll the first failing field (top-to-bottom) into view, not always the top.
+                        val target = when {
+                            symbolErr != null -> symbolBiv
+                            qtyErr != null -> qtyBiv
+                            entryErr != null || entryTsErr != null -> entryRowBiv
+                            exitErr != null || exitTsErr != null -> exitRowBiv
+                            else -> feesRowBiv
+                        }
+                        scope.launch { target.bringIntoView() }
                     }
                 },
+                enabled = !submitting,
                 modifier = Modifier.fillMaxWidth().padding(top = Space.xs),
-            ) { Text("Record trade") }
+            ) {
+                if (submitting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text("Record trade")
+                }
+            }
 
             status?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
@@ -265,6 +323,13 @@ private fun DateTimeField(value: String, onChange: (String) -> Unit, label: Stri
 private fun numError(s: String): String? {
     val v = runCatching { bigDecimal(s.trim()) }.getOrNull() ?: return "Enter a number"
     return if (v > ZERO) null else "Must be > 0"
+}
+
+// Fees are optional (blank = 0) and, unlike price/quantity, may legitimately be 0 — so ≥ 0, not > 0.
+private fun feeError(s: String): String? {
+    if (s.isBlank()) return null
+    val v = runCatching { bigDecimal(s.trim()) }.getOrNull() ?: return "Enter a number"
+    return if (v >= ZERO) null else "Must be ≥ 0"
 }
 
 private fun dateError(s: String): String? =
