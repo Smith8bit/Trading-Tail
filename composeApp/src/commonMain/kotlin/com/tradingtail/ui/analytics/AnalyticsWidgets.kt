@@ -175,28 +175,6 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
     }
 }
 
-@Composable
-internal fun KpiTile(label: String, value: String, valueColor: Color = Color.Unspecified, modifier: Modifier = Modifier) {
-    GlassCard(modifier = modifier) {
-        Column(modifier = Modifier.padding(Space.lg)) {
-            Text(
-                label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium,
-            )
-            Text(
-                value,
-                color = valueColor,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.headlineSmall,
-                // ponytail: large figures wrap rather than ellipsize — the primary number stays readable.
-                modifier = Modifier.padding(top = Space.sm),
-            )
-        }
-    }
-}
-
 /** Cumulative realized P&L as a filled line, with a dated x-axis + value gridlines (mock's hero chart). */
 @Composable
 internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: BigDecimal, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
@@ -746,20 +724,6 @@ internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Co
                     Text(valueText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                 }
             }
-        }
-    }
-}
-
-/**
- * Intentional dead frame for a market-data widget. ponytail: no market-price source exists yet
- * (deferred in CLAUDE.md) — kept per explicit request to mirror the mock; wire real data when a feed lands.
- */
-@Composable
-internal fun PlaceholderCard(title: String, modifier: Modifier = Modifier) {
-    GlassCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(Space.lg).height(56.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("n/a — needs market data", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Space.xs))
         }
     }
 }

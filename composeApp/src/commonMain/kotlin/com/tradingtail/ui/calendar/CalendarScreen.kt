@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -61,6 +63,7 @@ import com.tradingtail.data.local.entity.TradeEntity
 import com.tradingtail.data.repository.TradeRepository
 import com.tradingtail.domain.usecase.CalculateCalendarPnl
 import com.tradingtail.domain.usecase.DayPnl
+import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 import com.tradingtail.ui.theme.pnlFill
@@ -87,9 +90,11 @@ fun CalendarScreen(vm: CalendarViewModel, modifier: Modifier = Modifier) {
     var ym by remember { mutableStateOf(currentYearMonth()) }
     var selectedDay by remember { mutableStateOf<BkkDate?>(null) }
     val today = remember { bkkDate(nowMillis()) }
-    // Days with a journal note → the note glyph on that day cell lights up (else it's a muted affordance).
+    // Days with a journal note → the note glyph on that day cell lights up. Keyed by ENTRY day —
+    // the same day CalculateCalendarPnl buckets by, or an overnight trade's glyph lands on a cell
+    // whose figures don't include it.
     val notedDays = remember(trades) {
-        trades.filter { !it.notes.isNullOrBlank() }.map { bkkDate(it.exitTimestamp) }.toSet()
+        trades.filter { !it.notes.isNullOrBlank() }.map { bkkDate(it.entryTimestamp) }.toSet()
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -126,7 +131,9 @@ fun CalendarScreen(vm: CalendarViewModel, modifier: Modifier = Modifier) {
     }
 
     selectedDay?.let { date ->
-        val dayTrades = trades.filter { bkkDate(it.exitTimestamp) == date }
+        // Entry day, matching the cell's bucketing — tapping a cell must list exactly the trades
+        // whose P&L that cell shows.
+        val dayTrades = trades.filter { bkkDate(it.entryTimestamp) == date }
         ModalBottomSheet(
             onDismissRequest = { selectedDay = null },
             sheetState = rememberModalBottomSheetState(),
@@ -157,9 +164,9 @@ private fun MonthCard(
 
     val monthNav: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onPrev) { Text("‹") }
+            NavArrow("‹", "Previous month", onPrev)
             Text(monthLabel(ym), style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            TextButton(onClick = onNext) { Text("›") }
+            NavArrow("›", "Next month", onNext)
         }
     }
     val monthPnl: @Composable () -> Unit = {
@@ -226,33 +233,39 @@ private fun MonthCard(
     }
 }
 
-/** One day tile: day number + note glyph top row, then net P&L + trade count. Adjacent-month days are greyed. */
+/**
+ * One day tile. Traded days carry the figures (exact P&L + count); no-trade days are just a day
+ * number — a month of `$0.00 · 0 trades` was wallpaper that made traded days invisible at a squint.
+ */
 @Composable
 private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, hasNote: Boolean, onClick: () -> Unit, compact: Boolean, modifier: Modifier) {
-    val border = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+    // Full-strength hairline (not the faint variant) — the day grid is the screen's structure,
+    // and the faint tier washed out against the glass tint.
+    val border = if (isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
     val dayColor = if (cell.inMonth) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant
-    var box = modifier.height(if (compact) 56.dp else 88.dp).clip(RoundedCornerShape(8.dp))
-        .border(1.dp, border, RoundedCornerShape(8.dp))
-    if (cell.inMonth) box = box.clickable(onClick = onClick)
+    val shape = RoundedCornerShape(Radii.sm)
+    var box = modifier.height(if (compact) 56.dp else 88.dp).clip(shape).border(1.dp, border, shape)
+    // Only traded days open the detail sheet — an empty day has nothing to show, so it offers no click.
+    if (stat != null) box = box.clickable(onClick = onClick)
 
     Column(modifier = box.padding(if (compact) Space.xs else Space.sm)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
             Text(cell.date.day.toString(), color = dayColor, style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            // Note glyph dropped on narrow cells — no room next to the day number.
-            if (cell.inMonth && !compact) {
+            // Only a real note earns the glyph (dropped on narrow cells — no room next to the number).
+            if (hasNote && !compact) {
                 Icon(
                     NoteIcon,
-                    contentDescription = if (hasNote) "Has note" else null,
-                    tint = if (hasNote) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    contentDescription = "Has note",
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(13.dp),
                 )
             }
         }
-        if (cell.inMonth) {
+        if (cell.inMonth && stat != null) {
             Spacer(Modifier.weight(1f))
             Text(
-                formatMoney(stat?.pnl ?: ZERO), // exact figure, no abbreviation/round-up
-                color = if (stat == null) MaterialTheme.colorScheme.onSurfaceVariant else pnlColor(stat.pnl),
+                formatMoney(stat.pnl), // exact figure, no abbreviation/round-up
+                color = pnlColor(stat.pnl),
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium,
@@ -261,7 +274,7 @@ private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, hasNote: Boo
             )
             // Trade count dropped on narrow cells to leave the exact P&L room; tap the day for detail.
             if (!compact) Text(
-                "${stat?.trades ?: 0} trades",
+                tradeCount(stat.trades),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
@@ -270,25 +283,34 @@ private fun DayCell(cell: CalCell, stat: DayPnl?, isToday: Boolean, hasNote: Boo
     }
 }
 
-/** Right-rail weekly summary matching the mock's "Total" column: Week N, net P&L, trade count. */
+private fun tradeCount(n: Int) = if (n == 1) "1 trade" else "$n trades"
+
+/** Right-rail weekly summary ("Total" column). A week with no trades is just its muted label. */
 @Composable
 private fun WeekCell(label: String, trades: Int, total: BigDecimal, modifier: Modifier) {
     Column(
-        modifier = modifier.height(88.dp).clip(RoundedCornerShape(8.dp))
+        modifier = modifier.height(88.dp).clip(RoundedCornerShape(Radii.sm))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             .padding(Space.sm),
     ) {
-        Text(label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.weight(1f))
         Text(
-            formatMoney(total), // exact figure, no abbreviation/round-up
-            color = if (trades == 0) MaterialTheme.colorScheme.onSurfaceVariant else pnlColor(total),
-            fontFamily = FontFamily.Monospace,
+            label,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 1,
+            color = if (trades == 0) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified,
         )
-        Text("$trades trades", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        if (trades > 0) {
+            Spacer(Modifier.weight(1f))
+            Text(
+                formatMoney(total), // exact figure, no abbreviation/round-up
+                color = pnlColor(total),
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+            )
+            Text(tradeCount(trades), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
     }
 }
 
@@ -308,15 +330,15 @@ private fun YearOverview(
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Space.md)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onPrevYear) { Text("‹") }
+            NavArrow("‹", "Previous year", onPrevYear)
             Text("$year", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            TextButton(onClick = onNextYear) { Text("›") }
+            NavArrow("›", "Next year", onNextYear)
         }
         // Fluid column count off the actual grid width: 2 (phone) → 3 (medium) → 4 (wide).
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val cols = when {
-                maxWidth < 560.dp -> 2
-                maxWidth < 880.dp -> 3
+                maxWidth < 780.dp -> 2
+                maxWidth < 1120.dp -> 3
                 else -> 4
             }
             val tileNarrow = maxWidth / cols < 220.dp // short titles once a tile gets tight
@@ -337,32 +359,38 @@ private fun YearOverview(
 
 @Composable
 private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayPnl>, compact: Boolean, onOpen: () -> Unit, modifier: Modifier) {
-    GlassCard(modifier = modifier) {
+    // The whole card is the tap target (was a small "Open" pill per card — twelve buttons all saying
+    // the same thing). The opened month is marked by the Signal-Blue selection border instead.
+    val active = if (isActive) Modifier.border(1.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium) else Modifier
+    GlassCard(modifier = modifier.clip(MaterialTheme.shapes.medium).clickable(onClick = onOpen).then(active)) {
         Column(modifier = Modifier.padding(if (compact) Space.sm else Space.md)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(bottom = Space.sm),
                 horizontalArrangement = Arrangement.spacedBy(Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Short month name on narrow cards so the title + Pill fit; full name on wide.
                 Text(
-                    if (compact) "${MONTH_NAMES[ym.month - 1].take(3)} ${ym.year}" else "${MONTH_NAMES[ym.month - 1]}, ${ym.year}",
+                    // Same format as the big card's monthLabel ("April 2026"); abbreviated when narrow.
+                    if (compact) "${MONTH_NAMES[ym.month - 1].take(3)} ${ym.year}" else monthLabel(ym),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    color = if (isActive) MaterialTheme.colorScheme.primary else Color.Unspecified,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Pill(if (isActive) "Active" else "Open", isActive, onOpen)
             }
             Row(modifier = Modifier.fillMaxWidth()) {
                 for (d in WEEKDAYS) {
                     Text(
-                        d,
+                        // Always single-letter in the minis (the standard year-view idiom): "Wed" at
+                        // 14sp clips in any tile under ~260dp, and full names add nothing to a heatmap.
+                        d.take(1),
                         modifier = Modifier.weight(1f),
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
                     )
                 }
             }
@@ -381,7 +409,8 @@ private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayP
                             Text(
                                 cell.date.day.toString(),
                                 textAlign = TextAlign.Center,
-                                style = MaterialTheme.typography.bodyMedium,
+                                // A step down on narrow tiles so the digits get air inside ~24dp cells.
+                                style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
                                 fontWeight = if (stat != null) FontWeight.Bold else FontWeight.Normal,
                                 color = when {
                                     stat != null -> pnlColor(stat.pnl)
@@ -398,18 +427,10 @@ private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayP
     }
 }
 
-/** Small "Open"/"Active" button — Active is the currently opened month (green outline). */
+/** ‹ › nav button: the glyph is decoration; [label] is what a screen reader announces. */
 @Composable
-private fun Pill(text: String, active: Boolean, onClick: () -> Unit) {
-    val c = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier = Modifier.clip(RoundedCornerShape(6.dp))
-            .border(1.dp, if (active) c else c.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = Space.lg, vertical = Space.sm),
-    ) {
-        Text(text, color = c, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-    }
+private fun NavArrow(glyph: String, label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = label }) { Text(glyph) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -419,7 +440,11 @@ private fun Pill(text: String, active: Boolean, onClick: () -> Unit) {
 @Composable
 private fun DaySheet(date: BkkDate, dayTrades: List<TradeEntity>) {
     val total = dayTrades.fold(ZERO) { acc, t -> acc.add(t.realizedPnl) }
-    Column(modifier = Modifier.fillMaxWidth().padding(start = Space.lg, end = Space.lg, bottom = Space.xl)) {
+    Column(
+        // Scrollable: a heavy day can hold more rows than the sheet's max height.
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(start = Space.lg, end = Space.lg, bottom = Space.xl),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = Space.sm),
             horizontalArrangement = Arrangement.SpaceBetween,

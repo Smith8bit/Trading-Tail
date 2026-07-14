@@ -97,7 +97,9 @@ fun JournalScreen(vm: JournalViewModel, modifier: Modifier = Modifier) {
 @Composable
 private fun DayHeader(day: BkkDate, subtotal: BigDecimal) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = Space.sm, bottom = Space.xs),
+        // end inset = TradeRow's 48dp delete button + Space.sm, so the subtotal sits on the same
+        // column edge as the trade P&L figures below it (money columns align to the digit).
+        modifier = Modifier.fillMaxWidth().padding(top = Space.sm, bottom = Space.xs, end = 56.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
