@@ -71,6 +71,7 @@ import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.imports.ImportPreviewContent
 import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
+import com.tradingtail.ui.theme.LocalHazeState
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
@@ -137,8 +138,12 @@ fun App(module: AppModule) {
             val hazeState = remember { HazeState() }
             ImmersiveBackground(dark, Modifier.matchParentSize().hazeSource(hazeState))
             // Transparent containers break contentColorFor's chain (it falls back to an unset local →
-            // black text on the dark canvas). Pin the content color once for the whole shell.
-            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+            // black text on the dark canvas). Pin the content color once for the whole shell, and hand
+            // the haze source to every GlassCard so tiles frost the aurora without parameter-threading.
+            CompositionLocalProvider(
+                LocalContentColor provides MaterialTheme.colorScheme.onBackground,
+                LocalHazeState provides hazeState,
+            ) {
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
@@ -404,39 +409,42 @@ private fun ScreenContent(
 }
 
 /**
- * The immersive ground: the base canvas plus two faint Webull-blue radial glows (top-right, bottom-left).
- * Subtle — the accent is data-quiet chrome, not decoration — and near-invisible in light. Drawn once,
- * behind the whole shell, so glass edges and bento gaps reveal it.
+ * The aurora backdrop — what the frosted glass frosts. Replaces the old faint "immersive" wash:
+ * fewer, bigger, more vivid blue-family blobs (Webull blue → indigo → sky) spread across the canvas
+ * so every tile has color under it. Vivid ON PURPOSE: over a flat ground, glass reads as solid; the
+ * blur on chrome and tiles is what tames this back down to ambience. Blue-family only — gain-green
+ * and loss-red stay unambiguous as data.
  */
 @Composable
 private fun ImmersiveBackground(dark: Boolean, modifier: Modifier) {
     val base = MaterialTheme.colorScheme.background
-    val accent = MaterialTheme.colorScheme.primary
-    // Strong enough to bleed through the translucent glass tiles; still chrome, not decoration.
-    val a1 = if (dark) 0.26f else 0.10f
-    val a2 = if (dark) 0.16f else 0.07f
-    val a3 = if (dark) 0.12f else 0.05f
+    val blue = Color(0xFF005FFF)
+    val indigo = Color(0xFF5B3DF5)
+    val sky = Color(0xFF4D8BFF)
+    val a1 = if (dark) 0.42f else 0.20f
+    val a2 = if (dark) 0.34f else 0.15f
+    val a3 = if (dark) 0.28f else 0.12f
     Box(modifier.drawBehind {
         drawRect(base)
         drawRect(
             Brush.radialGradient(
-                colors = listOf(accent.copy(alpha = a1), Color.Transparent),
-                center = Offset(size.width * 0.85f, size.height * -0.05f),
-                radius = size.maxDimension * 0.62f,
+                colors = listOf(blue.copy(alpha = a1), Color.Transparent),
+                center = Offset(size.width * 0.85f, size.height * 0.02f),
+                radius = size.maxDimension * 0.60f,
             ),
         )
         drawRect(
             Brush.radialGradient(
-                colors = listOf(accent.copy(alpha = a2), Color.Transparent),
-                center = Offset(size.width * -0.05f, size.height * 1.05f),
+                colors = listOf(indigo.copy(alpha = a2), Color.Transparent),
+                center = Offset(size.width * 0.12f, size.height * 0.85f),
                 radius = size.maxDimension * 0.55f,
             ),
         )
         drawRect(
             Brush.radialGradient(
-                colors = listOf(accent.copy(alpha = a3), Color.Transparent),
-                center = Offset(size.width * 0.30f, size.height * 0.45f),
-                radius = size.maxDimension * 0.40f,
+                colors = listOf(sky.copy(alpha = a3), Color.Transparent),
+                center = Offset(size.width * 0.45f, size.height * 0.40f),
+                radius = size.maxDimension * 0.45f,
             ),
         )
     })

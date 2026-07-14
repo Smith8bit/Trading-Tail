@@ -106,8 +106,9 @@ private val DarkTradeColors = TradeColors(
     gainFill = Color(0xFF5FD48A).copy(alpha = 0.16f),
     lossFill = Color(0xFFF0736F).copy(alpha = 0.16f),
     accent = Color(0xFF4D8BFF),
-    glass = Color(0xFF141B27).copy(alpha = 0.62f),
-    sheen = Color(0xFFFFFFFF).copy(alpha = 0.10f),
+    // Thinner tint than a solid surface — backdrop blur (Glass.kt) carries the legibility.
+    glass = Color(0xFF10161F).copy(alpha = 0.50f),
+    sheen = Color(0xFFFFFFFF).copy(alpha = 0.12f),
 )
 
 private val LightTradeColors = TradeColors(
@@ -117,7 +118,7 @@ private val LightTradeColors = TradeColors(
     gainFill = Color(0xFF2E7D32).copy(alpha = 0.12f),
     lossFill = Color(0xFFC62828).copy(alpha = 0.12f),
     accent = Color(0xFF005FFF),
-    glass = Color(0xFFFFFFFF).copy(alpha = 0.66f),
+    glass = Color(0xFFFFFFFF).copy(alpha = 0.55f),
     sheen = Color(0xFFD4DCE7), // on light, the hairline defines the glass edge (white sheen is invisible)
 )
 
