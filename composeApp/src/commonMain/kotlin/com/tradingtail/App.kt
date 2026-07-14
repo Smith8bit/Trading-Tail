@@ -40,7 +40,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -98,7 +97,11 @@ private enum class Screen(val label: String, val icon: ImageVector) {
  */
 @Composable
 fun App(module: AppModule) {
-    TradingTailTheme {
+    // Theme follows the OS at launch, then the in-app toggle takes over. ponytail: session-only state,
+    // resets to system on restart — add DataStore persistence when a settings screen needs it.
+    val systemDark = isSystemInDarkTheme()
+    var dark by remember { mutableStateOf(systemDark) }
+    TradingTailTheme(darkTheme = dark) {
         var screen by remember { mutableStateOf(Screen.Dashboard) }
         var showEntry by remember { mutableStateOf(false) }
         var importFills by remember { mutableStateOf<List<ParsedFill>?>(null) }
@@ -132,14 +135,13 @@ fun App(module: AppModule) {
             val wide = maxWidth >= 600.dp
             // One haze source (the immersive ground); the glass chrome panels blur what's behind them.
             val hazeState = remember { HazeState() }
-            ImmersiveBackground(Modifier.matchParentSize().hazeSource(hazeState))
+            ImmersiveBackground(dark, Modifier.matchParentSize().hazeSource(hazeState))
             // Transparent containers break contentColorFor's chain (it falls back to an unset local →
             // black text on the dark canvas). Pin the content color once for the whole shell.
             CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
-                topBar = { if (!wide) MobileTopBar(onImport, hazeState) },
                 bottomBar = {
                     if (!wide) {
                         NavigationBar(
@@ -164,11 +166,20 @@ fun App(module: AppModule) {
                 if (wide) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
                         // Floating glass panel — no divider; the inset + sheen border do the separation.
-                        Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport)
+                        Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport, dark = dark, onToggleTheme = { dark = !dark })
                         ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
                     }
                 } else {
-                    ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.padding(padding))
+                    // No app bar on mobile — Import + theme toggle float over the immersive content, top-right.
+                    Box(Modifier.fillMaxSize().padding(padding)) {
+                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.fillMaxSize())
+                        FloatingActions(
+                            dark = dark,
+                            onToggleTheme = { dark = !dark },
+                            onImport = onImport,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(Space.sm),
+                        )
+                    }
                 }
             }
             }
@@ -248,26 +259,37 @@ private fun CaptureFab(onClick: () -> Unit) {
     FloatingActionButton(onClick = onClick) { Icon(Icons.Filled.Add, contentDescription = "Record trade") }
 }
 
-// Narrow layout has no sidebar, so Import is a direct top-bar action — one tap, always visible —
-// instead of hiding a single item behind an overflow menu.
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+// Mobile has no app bar or sidebar — these two controls float over the content instead. A glass pill
+// keeps them legible against whatever scrolls underneath.
 @Composable
-private fun MobileTopBar(onImport: () -> Unit, hazeState: HazeState) {
-    TopAppBar(
-        modifier = Modifier.hazeEffect(hazeState, glassChrome()),
-        title = { Text("Trading Tail") },
-        actions = {
-            TextButton(onClick = onImport) { Text("Import") }
-        },
-        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-            containerColor = Color.Transparent,
-        ),
-    )
+private fun FloatingActions(dark: Boolean, onToggleTheme: () -> Unit, onImport: () -> Unit, modifier: Modifier) {
+    val tc = LocalTradeColors.current
+    val shape = RoundedCornerShape(Radii.pill)
+    Row(
+        modifier = modifier.clip(shape).background(tc.glass).border(1.dp, tc.sheen, shape).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ThemeToggleButton(dark, onToggleTheme)
+        TextButton(onClick = onImport) { Text("Import") }
+    }
+}
+
+// Show the mode you'll switch *to*: a sun while dark, a moon while light.
+@Composable
+private fun ThemeToggleButton(dark: Boolean, onClick: () -> Unit) {
+    androidx.compose.material3.IconButton(onClick = onClick) {
+        Icon(
+            if (dark) SunIcon else MoonIcon,
+            contentDescription = if (dark) "Switch to light theme" else "Switch to dark theme",
+            tint = LocalTradeColors.current.accent,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 /** Desktop sidebar: a floating glass panel — inset from the window edge, real backdrop blur + frost. */
 @Composable
-private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit) {
+private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit, dark: Boolean, onToggleTheme: () -> Unit) {
     val tc = LocalTradeColors.current
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -335,10 +357,11 @@ private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) ->
             ) {
                 Text("KS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("K. Siwatt", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Text("Bangkok · USD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            ThemeToggleButton(dark, onToggleTheme)
         }
     }
 }
@@ -386,10 +409,9 @@ private fun ScreenContent(
  * behind the whole shell, so glass edges and bento gaps reveal it.
  */
 @Composable
-private fun ImmersiveBackground(modifier: Modifier) {
+private fun ImmersiveBackground(dark: Boolean, modifier: Modifier) {
     val base = MaterialTheme.colorScheme.background
     val accent = MaterialTheme.colorScheme.primary
-    val dark = isSystemInDarkTheme()
     // Strong enough to bleed through the translucent glass tiles; still chrome, not decoration.
     val a1 = if (dark) 0.26f else 0.10f
     val a2 = if (dark) 0.16f else 0.07f
@@ -432,4 +454,28 @@ private val BarChartIcon: ImageVector = ImageVector.Builder(
     path(fill = SolidColor(Color.Black)) { moveTo(4f, 12f); lineTo(8f, 12f); lineTo(8f, 20f); lineTo(4f, 20f); close() }
     path(fill = SolidColor(Color.Black)) { moveTo(10f, 6f); lineTo(14f, 6f); lineTo(14f, 20f); lineTo(10f, 20f); close() }
     path(fill = SolidColor(Color.Black)) { moveTo(16f, 9f); lineTo(20f, 9f); lineTo(20f, 20f); lineTo(16f, 20f); close() }
+}.build()
+
+// ponytail: sun + crescent hand-built for the same reason as BarChartIcon — no brightness glyph lives
+// in material-icons-core, and pulling the whole -extended artifact for two toggle states isn't worth it.
+private val SunIcon: ImageVector = ImageVector.Builder("Sun", 24.dp, 24.dp, 24f, 24f).apply {
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f) {
+        // rays
+        moveTo(12f, 2f); lineTo(12f, 4f); moveTo(12f, 20f); lineTo(12f, 22f)
+        moveTo(2f, 12f); lineTo(4f, 12f); moveTo(20f, 12f); lineTo(22f, 12f)
+        moveTo(4.9f, 4.9f); lineTo(6.3f, 6.3f); moveTo(17.7f, 17.7f); lineTo(19.1f, 19.1f)
+        moveTo(19.1f, 4.9f); lineTo(17.7f, 6.3f); moveTo(6.3f, 17.7f); lineTo(4.9f, 19.1f)
+    }
+    // solid core
+    path(fill = SolidColor(Color.Black)) {
+        moveTo(12f, 7f); arcToRelative(5f, 5f, 0f, true, true, -0.01f, 0f); close()
+    }
+}.build()
+
+// Crescent = a filled disc with an offset disc punched out (even-odd), so it reads as a moon, not a dot.
+private val MoonIcon: ImageVector = ImageVector.Builder("Moon", 24.dp, 24.dp, 24f, 24f).apply {
+    path(fill = SolidColor(Color.Black), pathFillType = androidx.compose.ui.graphics.PathFillType.EvenOdd) {
+        moveTo(12f, 3f); arcToRelative(9f, 9f, 0f, true, false, 9f, 9f)
+        arcToRelative(7f, 7f, 0f, true, true, -9f, -9f); close()
+    }
 }.build()

@@ -124,11 +124,13 @@ private val LightTradeColors = TradeColors(
 val LocalTradeColors = staticCompositionLocalOf { DarkTradeColors }
 
 @Composable
-fun TradingTailTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    CompositionLocalProvider(LocalTradeColors provides if (dark) DarkTradeColors else LightTradeColors) {
+fun TradingTailTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalTradeColors provides if (darkTheme) DarkTradeColors else LightTradeColors) {
         MaterialTheme(
-            colorScheme = if (dark) DarkColors else LightColors,
+            colorScheme = if (darkTheme) DarkColors else LightColors,
             typography = AppTypography,
             shapes = AppShapes,
             content = content,
