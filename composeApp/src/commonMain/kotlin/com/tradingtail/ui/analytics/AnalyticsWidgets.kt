@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import com.tradingtail.ui.theme.GlassCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,6 +42,8 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -60,6 +61,7 @@ import com.tradingtail.common.ZERO
 import com.tradingtail.common.formatMoney
 import com.tradingtail.domain.usecase.WinRateSummary
 import com.tradingtail.ui.theme.FontSize
+import com.tradingtail.ui.theme.GlassCard
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
@@ -74,6 +76,9 @@ import kotlin.math.roundToInt
 // ponytail: one responsive breakpoint drives every 2-up collapse, so a CompositionLocal beats
 // prop-drilling a `compact` flag through a dozen view fns. 600dp splits phone (~360dp) from desktop.
 internal val LocalCompact = staticCompositionLocalOf { false }
+
+/** "1 trade" / "3 trades" — never "1 trades". (CalendarScreen keeps its own copy; one line each.) */
+internal fun tradeCount(n: Int) = if (n == 1) "1 trade" else "$n trades"
 
 /** Card title size — one step down when compact so half-width chart titles stop wrapping to 3 lines. */
 @Composable
@@ -107,7 +112,7 @@ internal fun ChartPair(a: @Composable (Modifier, Boolean) -> Unit, b: @Composabl
     }
 }
 
-/** One pill in a segmented toggle / chip row — the mock's selected-vs-idle chip styling. */
+/** One pill in a chip row — the mock's selected-vs-idle chip styling (the year / month pickers). */
 @Composable
 internal fun ToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
@@ -120,18 +125,88 @@ internal fun ToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** 30/60/90-day window selector from the mock's dashboard header. */
+/**
+ * The report's top-level switcher as **card tabs**: individual filled cards with gaps between them,
+ * the active one a solid primary card that owns the content below; idle tabs are opaque surface cards
+ * with a sheen edge so they stand off the aurora gradient. Bigger + bolder than the segmented
+ * sub-switchers beneath. Scrolls horizontally when compact so no tab clips.
+ */
+@Composable
+internal fun CardTabs(items: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    val tc = LocalTradeColors.current
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+    ) {
+        items.forEachIndexed { i, label ->
+            val isSel = i == selected
+            val shape = RoundedCornerShape(Radii.md)
+            Box(
+                modifier = Modifier.clip(shape)
+                    .background(if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                    .then(if (isSel) Modifier else Modifier.border(1.dp, tc.sheen, shape))
+                    .clickable { onSelect(i) }
+                    .padding(horizontal = Space.lg, vertical = Space.md),
+            ) {
+                Text(
+                    label,
+                    color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A **segmented control** for the sub-level switchers (view mode, period, category): one recessed
+ * surfaceVariant track, segments butted together, the selected one raised to a surface pill with a
+ * sheen edge + primary label. Deliberately subordinate to the filled [CardTabs] above. [selected] may
+ * be out of range so a nav-only segment (Calendar) shows no highlight; [scrollable] lets a long track
+ * (the category selector) scroll on narrow widths.
+ */
+@Composable
+internal fun SegmentedControl(items: List<String>, selected: Int, scrollable: Boolean = false, onSelect: (Int) -> Unit) {
+    val tc = LocalTradeColors.current
+    val track = RoundedCornerShape(Radii.md)
+    Row(
+        modifier = Modifier
+            .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+            .clip(track).background(MaterialTheme.colorScheme.surfaceVariant).padding(Space.xs),
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+    ) {
+        items.forEachIndexed { i, label ->
+            val isSel = i == selected
+            val seg = RoundedCornerShape(Radii.sm)
+            Box(
+                modifier = Modifier.clip(seg)
+                    .then(if (isSel) Modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, tc.sheen, seg) else Modifier)
+                    .clickable { onSelect(i) }
+                    .padding(horizontal = Space.md, vertical = Space.sm),
+            ) {
+                Text(
+                    label,
+                    color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+/** 30/60/90-day window selector — a segmented control (the mock's dashboard header period toggle). */
 @Composable
 internal fun PeriodToggle(period: Int, onSelect: (Int) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        for (p in listOf(30, 60, 90)) ToggleChip("$p Days", p == period) { onSelect(p) }
-    }
+    val opts = listOf(30, 60, 90)
+    SegmentedControl(opts.map { "$it Days" }, opts.indexOf(period)) { onSelect(opts[it]) }
 }
 
 /** Preview's top week strip: last 7 Bangkok days, each cell a day's realized P&L + trade count. */
 @Composable
 internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
-    // ponytail: on a phone, 7 equal cells = ~41dp each and the ฿ value clips — scroll + min-width instead.
+    // ponytail: on a phone, 7 equal cells = ~41dp each and the $ value clips — scroll + min-width instead.
     val compact = LocalCompact.current
     Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         Text(rangeLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -164,7 +239,7 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
                         maxLines = 1,
                     )
                     Text(
-                        "${d.count} trades",
+                        tradeCount(d.count),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -228,7 +303,8 @@ internal fun DrawdownCard(series: List<Float>, dates: List<String>, maxDd: BigDe
 internal fun ColumnScope.chartModifier(fillHeight: Boolean, fixed: Dp): Modifier =
     if (fillHeight) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(fixed)
 
-// Every canvas chart uses this left gutter for ฿ tick labels; hit-testing needs the same value.
+// Every canvas chart uses this left gutter for $ tick labels; hit-testing needs the same value.
+// ponytail: 84px fits two-decimal k/M abbreviations at 14sp without clipping.
 private const val LEFT_PAD = 84f
 
 /**
@@ -353,7 +429,7 @@ private fun TooltipValue(text: String, color: Color = MaterialTheme.colorScheme.
     style = MaterialTheme.typography.labelMedium,
 )
 
-/** Vertical-bar tooltip: chart title as context, then the bar's label + value (฿-prefixed when money). */
+/** Vertical-bar tooltip: chart title as context, then the bar's label + value ($-prefixed when money). */
 @Composable
 private fun BarTooltip(title: String, p: DayPoint, money: Boolean) {
     TooltipHead(title)
@@ -363,7 +439,7 @@ private fun BarTooltip(title: String, p: DayPoint, money: Boolean) {
     }
 }
 
-/** Line tooltip: the point's date and its ฿ value, colored by sign. */
+/** Line tooltip: the point's date and its $ value, colored by sign. */
 @Composable
 private fun LineTooltip(date: String, value: Float) {
     val c = LocalTradeColors.current.let { if (value > 0f) it.gain else if (value < 0f) it.loss else it.neutralPnl }
@@ -371,7 +447,7 @@ private fun LineTooltip(date: String, value: Float) {
     TooltipValue(tickLabel(value, money = true), c)
 }
 
-/** Multi-series tooltip: the date, then a color swatch + ฿ value per line that has a point here. */
+/** Multi-series tooltip: the date, then a color swatch + $ value per line that has a point here. */
 @Composable
 private fun MultiLineTooltip(date: String, series: List<LineSpec>, i: Int) {
     TooltipHead(date)
@@ -384,19 +460,19 @@ private fun MultiLineTooltip(date: String, series: List<LineSpec>, i: Int) {
     }
 }
 
-/** Horizontal-bar tooltip: bucket label, its ฿ P&L (performance charts) and trade count. */
+/** Horizontal-bar tooltip: bucket label, its $ P&L (performance charts) and trade count. */
 @Composable
 private fun BucketTooltip(b: BucketPnl, performance: Boolean) {
     Text(b.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
     if (performance) TooltipValue(formatMoney(b.pnl), pnlColor(b.pnl))
     Text(
-        "${b.trades} trades",
+        tradeCount(b.trades),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
-/** Shared line-chart canvas: value gridlines + ฿ y-labels on the left, sampled date labels on the x-axis. */
+/** Shared line-chart canvas: value gridlines + $ y-labels on the left, sampled date labels on the x-axis. */
 @Composable
 internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color, canvasModifier: Modifier, fillToBottom: Boolean, xLabel: String = "Date", negColor: Color? = null) {
     val measurer = rememberTextMeasurer()
@@ -409,22 +485,25 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
         indexAt = { pos, sz -> lineIndexAt(pos, sz, series.size) },
         tooltip = { i -> LineTooltip(dates.getOrElse(i) { "" }, series[i]) },
     ) { hoverIdx ->
-        val leftPad = 84f // ponytail: room for ฿k/฿M + long ฿ tick labels
+        val leftPad = LEFT_PAD // shared with the hover hit-test — drift here breaks tooltips
         val bottomPad = if (xLabel.isEmpty()) 28f else 48f
         val plotW = size.width - leftPad
         val plotH = size.height - bottomPad
         val n = series.size
-        val (minV, maxV) = zeroCenteredBounds(series)
+        // Axis spans nice round ticks (not the raw data bounds) so every gridline label is a
+        // clean integer-ish value instead of "4.81".
+        val (loRaw, hiRaw) = zeroCenteredBounds(series)
+        val ticks = niceTicks(loRaw, hiRaw)
+        val minV = ticks.first()
+        val maxV = ticks.last()
         val range = (maxV - minV).let { if (it == 0f) 1f else it }
         fun px(i: Int) = leftPad + plotW * i / (n - 1)
         fun py(v: Float) = plotH * (1f - (v - minV) / range)
 
-        val steps = 4
-        for (s in 0..steps) {
-            val v = maxV - range * s / steps
-            val y = py(v)
+        for (t in ticks) {
+            val y = py(t)
             drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-            val lay = measurer.measure(axisLabel(v, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
+            val lay = measurer.measure(axisLabel(t, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
             drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
         }
         drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = 1.5f)
@@ -490,23 +569,24 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
                     indexAt = { pos, sz -> barIndexAt(pos, sz, points.size) },
                     tooltip = { i -> BarTooltip(title, points[i], money = diverging) },
                 ) { hoverIdx ->
-                    // ponytail: 84px fits two-decimal k/M abbreviations at 14sp without clipping.
-                    val leftPad = 84f
+                    val leftPad = LEFT_PAD // shared with the hover hit-test — drift here breaks tooltips
                     val bottomPad = if (xLabel.isEmpty()) 28f else 48f
                     val plotW = size.width - leftPad
                     val plotH = size.height - bottomPad
                     val n = points.size
                     val values = points.map { it.value }
-                    val (minV, maxV) = if (diverging) zeroCenteredBounds(values) else (0f to maxOf(0f, values.max()))
+                    // Nice round tick values as the axis bounds — labels read "5", not "4.81".
+                    val (loRaw, hiRaw) = if (diverging) zeroCenteredBounds(values) else (0f to maxOf(0f, values.max()))
+                    val ticks = niceTicks(loRaw, hiRaw)
+                    val minV = ticks.first()
+                    val maxV = ticks.last()
                     val range = (maxV - minV).let { if (it == 0f) 1f else it }
                     fun py(v: Float) = plotH * (1f - (v - minV) / range)
 
-                    val steps = 4
-                    for (s in 0..steps) {
-                        val v = maxV - range * s / steps
-                        val y = py(v)
+                    for (t in ticks) {
+                        val y = py(t)
                         drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-                        val lay = measurer.measure(axisLabel(v, diverging), TextStyle(fontSize = FontSize.sm, color = labelColor))
+                        val lay = measurer.measure(axisLabel(t, diverging), TextStyle(fontSize = FontSize.sm, color = labelColor))
                         drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
                     }
                     val zeroY = py(0f)
@@ -560,7 +640,7 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
     val hoverTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) // brightens the hovered bar
     SectionCard(title, modifier) {
         if (buckets.isEmpty()) {
-            Text("No trades yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@SectionCard
         }
         val n = buckets.size
@@ -651,22 +731,24 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
                     indexAt = { pos, sz -> lineIndexAt(pos, sz, n) },
                     tooltip = { i -> MultiLineTooltip(dates.getOrElse(i) { "" }, series, i) },
                 ) { hoverIdx ->
-                    val leftPad = 84f // ponytail: room for ฿k/฿M + long ฿ tick labels
+                    val leftPad = LEFT_PAD // shared with the hover hit-test — drift here breaks tooltips
                     val bottomPad = if (xLabel.isEmpty()) 28f else 48f
                     val plotW = size.width - leftPad
                     val plotH = size.height - bottomPad
                     val all = series.flatMap { it.values.filterNotNull() }
-                    val (minV, maxV) = zeroCenteredBounds(all)
+                    // Nice round tick values as the axis bounds — labels read "200", not "173.91".
+                    val (loRaw, hiRaw) = zeroCenteredBounds(all)
+                    val ticks = niceTicks(loRaw, hiRaw)
+                    val minV = ticks.first()
+                    val maxV = ticks.last()
                     val range = (maxV - minV).let { if (it == 0f) 1f else it }
                     fun px(i: Int) = leftPad + plotW * i / (n - 1)
                     fun py(v: Float) = plotH * (1f - (v - minV) / range)
 
-                    val steps = 4
-                    for (st in 0..steps) {
-                        val v = maxV - range * st / steps
-                        val y = py(v)
+                    for (t in ticks) {
+                        val y = py(t)
                         drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = 1f)
-                        val lay = measurer.measure(axisLabel(v, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
+                        val lay = measurer.measure(axisLabel(t, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
                         drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
                     }
                     drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = 1.5f)
@@ -771,6 +853,8 @@ private fun DurationRow(label: String, ms: Long?) {
 internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, title: String = "Winning vs Losing Trades") {
     val colors = LocalTradeColors.current
     val decided = win.wins + win.losses
+    // No data ≠ all losses: a neutral ring + "—" until there's a decided trade to classify.
+    val ring = if (decided > 0) colors.loss else MaterialTheme.colorScheme.surfaceVariant
     GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -783,7 +867,7 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
                     Canvas(modifier = Modifier.size(72.dp)) {
                         val stroke = 12.dp.toPx()
                         drawArc(
-                            color = colors.loss,
+                            color = ring,
                             startAngle = -90f, sweepAngle = 360f, useCenter = false,
                             style = Stroke(width = stroke),
                         )
@@ -796,7 +880,7 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
                         )
                     }
                     Text(
-                        "${(win.winRate * 100).toInt()}%",
+                        if (decided > 0) "${(win.winRate * 100).roundToInt()}%" else "—",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall,
@@ -815,7 +899,7 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
 @Composable
 internal fun LegendRow(dot: Color, label: String, count: Int) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        Box(Modifier.size(9.dp).background(dot, RoundedCornerShape(3.dp)))
+        Box(Modifier.size(8.dp).background(dot, RoundedCornerShape(2.dp)))
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         Text(
             count.toString(),
@@ -853,7 +937,7 @@ private fun FigureRow(label: String, value: BigDecimal) {
 }
 
 /**
- * TraderVue-style performance row: label on the left, ฿ value + % on the right, and a thin
+ * TraderVue-style performance row: label on the left, $ value + % on the right, and a thin
  * left-anchored magnitude bar underneath (length ∝ |P&L| over the section max, colored by sign).
  */
 @Composable
@@ -929,7 +1013,7 @@ internal fun BucketSection(title: String, buckets: List<BucketPnl>, modifier: Mo
 
     @Composable
     fun rows(items: List<BucketPnl>) {
-        if (buckets.isEmpty()) Text("No trades yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (buckets.isEmpty()) Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         for (b in items) BarRow("${b.label} (${b.trades}t)", b.pnl, max, percentOf(b.pnl, total))
     }
 
@@ -955,24 +1039,26 @@ private fun PageBar(page: Int, count: Int, onPage: (Int) -> Unit) {
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Arrow("‹", page > 0) { onPage(page - 1) }
+        Arrow("‹", "Previous page", page > 0) { onPage(page - 1) }
         Text(
             "${page + 1} / $count",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = Space.sm),
         )
-        Arrow("›", page < count - 1) { onPage(page + 1) }
+        Arrow("›", "Next page", page < count - 1) { onPage(page + 1) }
     }
 }
 
 @Composable
-private fun Arrow(glyph: String, enabled: Boolean, onClick: () -> Unit) {
+private fun Arrow(glyph: String, description: String, enabled: Boolean, onClick: () -> Unit) {
     Text(
         glyph,
         color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.clip(RoundedCornerShape(Radii.md)).clickable(enabled = enabled, onClick = onClick).padding(horizontal = Space.sm, vertical = 2.dp),
+        modifier = Modifier.clip(RoundedCornerShape(Radii.md)).clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = description } // the ‹/› glyphs say nothing to a reader
+            .padding(horizontal = Space.sm, vertical = 2.dp),
     )
 }

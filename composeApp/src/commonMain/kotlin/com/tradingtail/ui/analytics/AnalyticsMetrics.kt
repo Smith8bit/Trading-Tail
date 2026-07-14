@@ -45,7 +45,7 @@ internal fun TradeEntity.tradeDay(): BkkDate = bkkDate(entryTimestamp)
 enum class RangePreset(val label: String) {
     Today("Today"), Yesterday("Yesterday"), Last7("Last 7 days"), Last30("Last 30 days"),
     ThisMonth("This month"), LastMonth("Last month"), Last12Months("Last 12 months"),
-    LastYear("Last Year"), Ytd("YTD"),
+    LastYear("Last year"), Ytd("YTD"),
 }
 
 /** Concrete [from, to] day bounds for a preset relative to [now]'s Bangkok day. */
@@ -125,7 +125,7 @@ private fun bucket(label: String, trades: List<TradeEntity>) = BucketPnl(label, 
 // Sunday-first weekday order (ISO dow 7,1..6), matching the mock and the calendar's Sun-first grid.
 private val DOW_ORDER = listOf(7, 1, 2, 3, 4, 5, 6)
 
-/** P&L grouped by Bangkok weekday of exit — all 7 days, Sun..Sat, empty days shown as ฿0. */
+/** P&L grouped by Bangkok weekday of exit — all 7 days, Sun..Sat, empty days shown as $0. */
 fun pnlByDayOfWeek(trades: List<TradeEntity>): List<BucketPnl> =
     DOW_ORDER.map { dow -> bucket(DOW_FULL[dow - 1], trades.filter { dowLabel(it.tradeDay()) == dow }) }
 
@@ -143,7 +143,7 @@ private val INTRADAY_DUR_BUCKETS = listOf(
 )
 private const val INTRADAY_DUR_TOP = "4:00:00 >"
 
-/** P&L bucketed by hold time for intraday trades only; fixed ladder, empty buckets shown as ฿0. */
+/** P&L bucketed by hold time for intraday trades only; fixed ladder, empty buckets shown as $0. */
 fun pnlByIntradayDuration(trades: List<TradeEntity>): List<BucketPnl> {
     val intraday = trades.filter { bkkDate(it.entryTimestamp) == bkkDate(it.exitTimestamp) }
     fun label(sec: Long): String = INTRADAY_DUR_BUCKETS.firstOrNull { sec < it.second }?.first ?: INTRADAY_DUR_TOP
@@ -164,7 +164,7 @@ fun pnlBySymbolTop(trades: List<TradeEntity>, n: Int = 20): List<BucketPnl> =
 fun pnlBySymbolBottom(trades: List<TradeEntity>, n: Int = 20): List<BucketPnl> =
     pnlBySymbol(trades).sortedBy { it.pnl }.take(n)
 
-/** P&L grouped by Bangkok calendar month of exit — all 12 months, Jan..Dec, empty months as ฿0. */
+/** P&L grouped by Bangkok calendar month of exit — all 12 months, Jan..Dec, empty months as $0. */
 fun pnlByMonth(trades: List<TradeEntity>): List<BucketPnl> {
     val byMonth = trades.groupBy { it.tradeDay().month }
     return (1..12).map { m -> bucket(MONTHS[m - 1], byMonth[m] ?: emptyList()) }
@@ -203,7 +203,7 @@ private const val PRICE_TOP = "$500+"
 
 /**
  * P&L bucketed by a trade's entry price (first entry fill), via a lookup from execution id → price.
- * All price brackets are shown (empty ones as ฿0), matching the mock's fixed price ladder.
+ * All price brackets are shown (empty ones as $0), matching the mock's fixed price ladder.
  */
 fun pnlByPrice(trades: List<TradeEntity>, priceById: (Long) -> BigDecimal?): List<BucketPnl> {
     fun label(p: Float): String = PRICE_BUCKETS.firstOrNull { p < it.second }?.first ?: PRICE_TOP
@@ -225,7 +225,7 @@ private const val VOLUME_TOP = "5,000+"
 private fun tradeShares(t: TradeEntity, qtyById: (Long) -> BigDecimal?): Float =
     t.entryExecutionIds.mapNotNull { qtyById(it) }.fold(ZERO) { a, q -> a.add(q) }.toFloat()
 
-/** P&L bucketed by share size (summed entry-fill quantity); fixed ladder, empties shown as ฿0. */
+/** P&L bucketed by share size (summed entry-fill quantity); fixed ladder, empties shown as $0. */
 fun pnlByVolumeTraded(trades: List<TradeEntity>, qtyById: (Long) -> BigDecimal?): List<BucketPnl> {
     fun label(s: Float): String = VOLUME_BUCKETS.firstOrNull { s < it.second }?.first ?: VOLUME_TOP
     val groups = trades.groupBy { label(tradeShares(it, qtyById)) }
@@ -233,7 +233,7 @@ fun pnlByVolumeTraded(trades: List<TradeEntity>, qtyById: (Long) -> BigDecimal?)
     return order.map { lab -> bucket(lab, groups[lab] ?: emptyList()) }
 }
 
-/** Average of per-Bangkok-day summed P&L (money average; empty → ฿0). */
+/** Average of per-Bangkok-day summed P&L (money average; empty → $0). */
 fun avgDailyPnl(trades: List<TradeEntity>): BigDecimal =
     averageMoney(trades.groupBy { it.tradeDay() }.values.map { sumPnl(it) })
 
@@ -531,25 +531,31 @@ private fun niceNum(range: Double, round: Boolean): Double {
 }
 
 /** Exactly two decimal places for a non-negative value: 1234.5 → "1234.50". */
-private fun twoDpAbs(x: Double): String {
+internal fun twoDpAbs(x: Double): String {
     val c = (x * 100).roundToLong()
     return "${c / 100}.${(c % 100).toString().padStart(2, '0')}"
 }
 
-/** Chart value/tick text, always two decimals: "72.00" for counts, "−$45.30" for money. */
+/** [twoDpAbs] with trailing zeros trimmed: 300.00 → "300", 1.50 → "1.5" — axes read as integers
+ *  wherever the tick is whole, decimals only when it genuinely isn't. */
+private fun trimDpAbs(x: Double): String = twoDpAbs(x).trimEnd('0').trimEnd('.')
+
+/** Chart tooltip value: money keeps exact two decimals ("−$45.30"); counts are plain ("72"). */
 internal fun tickLabel(v: Float, money: Boolean): String {
     val sign = if (v < 0f) "−" else "" // U+2212 minus, matching formatMoney
-    return "$sign${if (money) CURRENCY else ""}${twoDpAbs(kotlin.math.abs(v).toDouble())}"
+    val a = kotlin.math.abs(v).toDouble()
+    return if (money) "$sign$CURRENCY${twoDpAbs(a)}" else "$sign${trimDpAbs(a)}"
 }
 
-/** Axis tick text: two decimals, no currency symbol — abbreviated (k/M) for large money axes. */
+/** Axis tick text, no currency symbol: whole ticks print as integers ("300", "−5", "2k"),
+ *  abbreviated (k/M) for large money axes. Pair with [niceTicks] so ticks land on round values. */
 internal fun axisLabel(v: Float, money: Boolean): String {
-    if (!money) return tickLabel(v, money = false)
-    val a = kotlin.math.abs(v)
+    val a = kotlin.math.abs(v).toDouble()
     val s = if (v < 0f) "−" else ""
     return when {
-        a >= 1_000_000f -> "$s${twoDpAbs(a / 1_000_000.0)}M"
-        a >= 1_000f -> "$s${twoDpAbs(a / 1_000.0)}k"
-        else -> "$s${twoDpAbs(a.toDouble())}"
+        !money -> "$s${trimDpAbs(a)}"
+        a >= 1_000_000 -> "$s${trimDpAbs(a / 1_000_000)}M"
+        a >= 1_000 -> "$s${trimDpAbs(a / 1_000)}k"
+        else -> "$s${trimDpAbs(a)}"
     }
 }

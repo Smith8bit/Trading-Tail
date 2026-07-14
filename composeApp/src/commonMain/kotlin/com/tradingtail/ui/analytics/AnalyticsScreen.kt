@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -27,10 +28,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import com.tradingtail.ui.theme.GlassCard
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -64,9 +61,12 @@ import com.tradingtail.domain.usecase.CalculatePnlByHour
 import com.tradingtail.domain.usecase.CalculateWinRate
 import com.tradingtail.domain.usecase.HourPnl
 import com.tradingtail.domain.usecase.WinRateSummary
+import com.tradingtail.ui.theme.GlassCard
 import com.tradingtail.ui.theme.LocalTradeColors
+import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
+import kotlin.math.roundToInt
 
 @Composable
 fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier: Modifier = Modifier) {
@@ -95,25 +95,15 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
             "Reports",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = Space.md, bottom = Space.sm),
+            // Extra clearance when compact: the trailing corner belongs to the floating theme/Import
+            // pill on phones — the filter bar scrolls horizontally, so it must start below the pill.
+            modifier = Modifier.padding(top = Space.md, bottom = if (compact) Space.md else Space.sm),
         )
         DateRangeBar(fromDate, toDate, now) { f, t -> fromDate = f; toDate = t }
-        // Underlined tab bar mirroring the mock's report tabs; only tabs we have data to back.
-        // ponytail: scrollable when compact so "Win vs Loss Days" isn't clipped in a ~84dp equal slot.
-        val tabSlots: @Composable () -> Unit = {
-            tabs.forEachIndexed { i, title ->
-                Tab(
-                    selected = tab == i,
-                    onClick = { tab = i },
-                    text = { Text(title, style = MaterialTheme.typography.labelLarge) },
-                )
-            }
-        }
-        if (compact) {
-            ScrollableTabRow(selectedTabIndex = tab, containerColor = Color.Transparent, edgePadding = 0.dp, tabs = tabSlots)
-        } else {
-            TabRow(selectedTabIndex = tab, containerColor = Color.Transparent, tabs = tabSlots)
-        }
+        // Top-level report switcher as card tabs — bold filled cards, the active one owning the
+        // content below. (Replaced the M3 TabRow whose blue labels + hairline sat illegibly on the
+        // aurora gradient.) Sub-switchers below drop to a segmented control — a step down the hierarchy.
+        CardTabs(tabs, tab) { tab = it }
 
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = Space.md),
@@ -123,9 +113,17 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
                 0 -> {
                     // ponytail: skipped the cosmetic P&L Type / View mode / Report type dropdowns — v1 is
                     // gross-only / $-value / aggregate, so they'd be dead chrome. Add if Net/% ever ships.
-                    ReportViewToggle(view, onOpenCalendar) { view = it }
+                    var period by remember { mutableStateOf(30) }
+                    OverviewControls(
+                        view = view,
+                        period = period,
+                        showPeriod = view == ReportView.Recent && !hasFilter,
+                        onOpenCalendar = onOpenCalendar,
+                        onView = { view = it },
+                        onPeriod = { period = it },
+                    )
                     when (view) {
-                        ReportView.Recent -> RecentView(trades, executions, now, hasFilter)
+                        ReportView.Recent -> RecentView(trades, executions, now, hasFilter, period)
                         ReportView.YearMonthDay -> YearMonthDayView(trades, now)
                     }
                 }
@@ -142,13 +140,55 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
 // Recent charts a rolling window; Year/Month/Day drills year → month → day. (Calendar is its own nav dest.)
 private enum class ReportView { Recent, YearMonthDay }
 
-/** The mock's Recent | Year/Month/Day | Calendar view selector under the Overview tab. */
+/** The mock's Recent | Year/Month/Day | Calendar view selector under the Overview tab.
+ *  Recent/YMD are real segments; Calendar is a trailing segment that navigates away (never selected). */
 @Composable
 private fun ReportViewToggle(current: ReportView, onOpenCalendar: () -> Unit, onSelect: (ReportView) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        ToggleChip("Recent", current == ReportView.Recent) { onSelect(ReportView.Recent) }
-        ToggleChip("Year/Month/Day", current == ReportView.YearMonthDay) { onSelect(ReportView.YearMonthDay) }
-        ToggleChip("Calendar", false, onOpenCalendar) // Calendar has its own nav destination
+    val sel = if (current == ReportView.Recent) 0 else 1
+    SegmentedControl(listOf("Recent", "Year/Month/Day", "Calendar"), sel) { i ->
+        when (i) {
+            0 -> onSelect(ReportView.Recent)
+            1 -> onSelect(ReportView.YearMonthDay)
+            else -> onOpenCalendar()
+        }
+    }
+}
+
+/**
+ * The Overview tab's one control row: view selector left, 30/60/90 window right — grouped and
+ * baseline-aligned instead of the old two stacked rows with opposite alignments. Compact keeps
+ * everything on a single horizontally-scrollable line (the established narrow-width pattern here).
+ */
+@Composable
+private fun OverviewControls(
+    view: ReportView,
+    period: Int,
+    showPeriod: Boolean,
+    onOpenCalendar: () -> Unit,
+    onView: (ReportView) -> Unit,
+    onPeriod: (Int) -> Unit,
+) {
+    if (LocalCompact.current) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReportViewToggle(view, onOpenCalendar, onView)
+            if (showPeriod) {
+                Spacer(Modifier.width(Space.md)) // a visible seam between the two chip groups
+                PeriodToggle(period, onPeriod)
+            }
+        }
+    } else {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReportViewToggle(view, onOpenCalendar, onView)
+            if (showPeriod) PeriodToggle(period, onPeriod)
+        }
     }
 }
 
@@ -160,11 +200,11 @@ private fun DateRangeBar(from: BkkDate?, to: BkkDate?, now: Long, onRange: (BkkD
         // ponytail: preset + From/–/To/Clear overflow a phone's width, so scroll them when compact.
         modifier = Modifier.fillMaxWidth()
             .then(if (LocalCompact.current) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
-            .padding(bottom = 8.dp),
+            .padding(bottom = Space.sm),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        PresetPicker(preset) { p -> preset = p; presetRange(p, now).let { onRange(it.first, it.second) } }
+        PresetPicker(preset, hasDates = from != null || to != null) { p -> preset = p; presetRange(p, now).let { onRange(it.first, it.second) } }
         DateField(from, "From") { preset = null; onRange(it, to) }
         Text("–", color = MaterialTheme.colorScheme.onSurfaceVariant)
         DateField(to, "To") { preset = null; onRange(from, it) }
@@ -174,15 +214,16 @@ private fun DateRangeBar(from: BkkDate?, to: BkkDate?, now: Long, onRange: (BkkD
 
 /** Dropdown of the range presets (Today, Last 7 days, YTD, …). */
 @Composable
-private fun PresetPicker(selected: RangePreset?, onSelect: (RangePreset) -> Unit) {
+private fun PresetPicker(selected: RangePreset?, hasDates: Boolean, onSelect: (RangePreset) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         Box(
-            modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { open = true }.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.clip(RoundedCornerShape(Radii.md)).background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable { open = true }.padding(horizontal = Space.md, vertical = Space.sm),
         ) {
             Text(
-                (selected?.label ?: "Custom range") + "  ▾",
+                // No preset + no manual dates = the reports really cover everything — say so.
+                (selected?.label ?: if (hasDates) "Custom range" else "All time") + "  ▾",
                 color = if (selected == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
@@ -202,9 +243,10 @@ private fun PresetPicker(selected: RangePreset?, onSelect: (RangePreset) -> Unit
 private fun DateField(date: BkkDate?, placeholder: String, onPick: (BkkDate) -> Unit) {
     var show by remember { mutableStateOf(false) }
     Box(
-        modifier = Modifier.clip(RoundedCornerShape(8.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-            .clickable { show = true }.padding(horizontal = 12.dp, vertical = 8.dp),
+        // Radii.sm = the input-field corner (AppShapes.extraSmall) — this is a field, not a chip.
+        modifier = Modifier.clip(RoundedCornerShape(Radii.sm))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(Radii.sm))
+            .clickable { show = true }.padding(horizontal = Space.md, vertical = Space.sm),
     ) {
         Text(
             date?.let { "${it.year}-${two(it.month)}-${two(it.day)}" } ?: placeholder,
@@ -222,10 +264,10 @@ private fun DateField(date: BkkDate?, placeholder: String, onPick: (BkkDate) -> 
     }
 }
 
-/** Recent window (mock's "Recent"): 30/60/90-day daily P&L, cumulative curve, volume, win%. */
+/** Recent window (mock's "Recent"): 30/60/90-day daily P&L, cumulative curve, volume, win%.
+ *  [period] lives in the Overview header row (OverviewControls), grouped with the view selector. */
 @Composable
-private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEntity>, now: Long, hasFilter: Boolean) {
-    var period by remember { mutableStateOf(30) }
+private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEntity>, now: Long, hasFilter: Boolean, period: Int) {
     val cutoff = now - period * DAY_MS
     // When a global From–To filter is set it already scoped `trades`/`executions` — honor it instead of
     // re-clamping to the rolling window, which would hide any range further back than `period` days.
@@ -234,11 +276,6 @@ private fun RecentView(trades: List<TradeEntity>, executions: List<ExecutionEnti
     val span = if (hasFilter) "Selected range" else "$period Days"
     val tc = LocalTradeColors.current
     Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
-        if (!hasFilter) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                PeriodToggle(period) { period = it }
-            }
-        }
         ChartPair(
             { m, fh -> BarChartCard("Gross Daily P&L ($span)", remember(ft) { dailyPnlPoints(ft) }, diverging = true, barColor = tc.gain, modifier = m, fillHeight = fh) },
             { m, fh -> LineCard("Gross Cumulative P&L ($span)", remember(ft) { cumulativeSeries(ft) }, remember(ft) { exitDateLabels(ft) }, tc.gain, m, fillHeight = fh) },
@@ -276,7 +313,7 @@ private fun YearMonthDayView(trades: List<TradeEntity>, now: Long) {
     }
 }
 
-/** A horizontally scrollable row of selectable chips (year picker, month picker). */
+/** A horizontally scrollable row of selectable chips (the year picker, the month picker). */
 @Composable
 private fun ChipRow(items: List<String>, selected: String, onSelect: (String) -> Unit) {
     Row(
@@ -292,8 +329,8 @@ private fun ChipRow(items: List<String>, selected: String, onSelect: (String) ->
 @Composable
 private fun LineCard(title: String, series: List<Float>, dates: List<String>, line: Color, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
     GlassCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+        Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
+            Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (series.size < 2) {
                 Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
@@ -343,15 +380,11 @@ private fun InstrumentSection(trades: List<TradeEntity>, qtyById: (Long) -> BigD
     }
 }
 
-/** The mock's Days/Times · Price/Volume · … category selector (scrolls horizontally on narrow widths). */
+/** The mock's Days/Times · Price/Volume · … category selector, a segmented control (scrolls on narrow widths). */
 @Composable
 private fun CategoryToggle(current: DetailCat, onSelect: (DetailCat) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(Space.sm),
-    ) {
-        for (c in DetailCat.entries) ToggleChip(c.label, c == current) { onSelect(c) }
-    }
+    val cats = DetailCat.entries.toList()
+    SegmentedControl(cats.map { it.label }, cats.indexOf(current), scrollable = true) { onSelect(cats[it]) }
 }
 
 private data class Stat(val label: String, val value: String, val color: Color)
@@ -381,9 +414,10 @@ private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity
     val kellyV = kelly(trades)
     val adp = avgDailyPnl(trades)
 
-    fun d2(x: Double) = ((x * 100).toInt() / 100.0).toString()
+    // Rounded (not truncated) and always two decimals — a "1.9" next to a "2.00" reads as imprecision.
+    fun d2(x: Double) = (if (x < 0) "−" else "") + twoDpAbs(kotlin.math.abs(x))
     fun dur(ms: Long?) = ms?.let { formatDuration(it) } ?: na
-    fun count(n: Int) = if (totalTrades == 0) "$n" else "$n (${((n * 1000.0) / totalTrades).toInt() / 10.0}%)"
+    fun count(n: Int) = if (totalTrades == 0) "$n" else "$n (${(n * 1000.0 / totalTrades).roundToInt() / 10.0}%)"
 
     return listOf(
         Stat("Total Gain/Loss", formatMoney(win.totalPnl), pnlColor(win.totalPnl)),
@@ -391,7 +425,7 @@ private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity
         Stat("Largest Loss", formatMoney(bw.largestLoss), tc.loss),
         Stat("Average Daily Gain/Loss", formatMoney(adp), pnlColor(adp)),
         Stat("Average Daily Volume", if (days > 0) (vol.toFloat() / days).toLong().toString() else "0", plain),
-        Stat("Average Per-share Gain/Loss", na, muted),
+        Stat("Average Per-Share Gain/Loss", na, muted),
         Stat("Average Trade Gain/Loss", formatMoney(avg.perTrade), pnlColor(avg.perTrade)),
         Stat("Average Winning Trade", formatMoney(avg.perWinner), tc.gain),
         Stat("Average Losing Trade", formatMoney(avg.perLoser), tc.loss),
@@ -409,11 +443,12 @@ private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity
         Stat("Probability of Random Chance", na, muted),
         Stat("Kelly Percentage", kellyV?.let { if (it < 0) "< 0%" else "${(it * 100).toInt()}%" } ?: na, plain),
         Stat("K-Ratio", na, muted),
-        Stat("Profit factor", pf?.let { d2(it) } ?: "∞", plain),
+        Stat("Profit Factor", pf?.let { d2(it) } ?: "∞", plain),
         Stat("Total Commissions", formatMoney(ZERO), plain),
-        Stat("Total Fees", formatMoney(totalFees(executions)), plain),
+        // Signed cost (−$…), matching the Dashboard's fees figure — "+$144" fees would read as a gain.
+        Stat("Total Fees", formatMoney(ZERO.subtract(totalFees(executions))), plain),
         Stat("", "", plain),
-        Stat("Average position MAE", na, muted),
+        Stat("Average Position MAE", na, muted),
         Stat("Average Position MFE", na, muted),
         Stat("", "", plain),
     )
@@ -422,12 +457,13 @@ private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity
 /** The mock's big Stats table: a 3-column grid of summary metrics with hairline row separators. */
 @Composable
 private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntity>) {
-    val stats = statList(trades, executions)
-    // ponytail: 3-up columns crush the long labels on a phone → 1 col when compact, full width per row.
-    val cols = if (LocalCompact.current) 1 else 3
+    // Blank Stat("", "") entries pad the multi-column grid into even rows; in a single column
+    // they'd render as dead rows with stray dividers, so drop them there.
+    val cols = if (LocalCompact.current) 1 else 3 // ponytail: 3-up crushes long labels on a phone
+    val stats = statList(trades, executions).let { if (cols == 1) it.filter { s -> s.label.isNotEmpty() } else it }
     GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Stats", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+        Column(modifier = Modifier.padding(Space.lg)) {
+            Text("Stats", style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
             stats.chunked(cols).forEachIndexed { i, row ->
                 if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -443,14 +479,14 @@ private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntit
 @Composable
 private fun StatColumn(title: String, dot: Color, trades: List<TradeEntity>, executions: List<ExecutionEntity>, modifier: Modifier) {
     GlassCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm), modifier = Modifier.padding(bottom = 12.dp)) {
-                Box(Modifier.size(9.dp).background(dot, RoundedCornerShape(3.dp)))
+        Column(modifier = Modifier.padding(Space.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm), modifier = Modifier.padding(bottom = Space.md)) {
+                Box(Modifier.size(8.dp).background(dot, RoundedCornerShape(2.dp)))
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
             statList(trades, executions).filter { it.label.isNotEmpty() }.forEachIndexed { i, s ->
                 if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs)) {
                     Text("${s.label}:", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
                     Text(s.value, color = s.color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 }
@@ -462,12 +498,12 @@ private fun StatColumn(title: String, dot: Color, trades: List<TradeEntity>, exe
 @Composable
 private fun StatCell(s: Stat, modifier: Modifier) {
     Row(
-        modifier = modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+        modifier = modifier.padding(vertical = Space.sm, horizontal = Space.xs),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(s.label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(s.value, color = s.color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+        Text(s.value, color = s.color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End, maxLines = 1, modifier = Modifier.padding(start = Space.sm))
     }
 }
 
@@ -513,10 +549,10 @@ private fun WinLossExpectationSection(trades: List<TradeEntity>, win: WinRateSum
 @Composable
 private fun TradeExpectationCard(expectancy: BigDecimal, modifier: Modifier = Modifier) {
     GlassCard(modifier = modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Trade Expectation", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+        Column(modifier = Modifier.padding(Space.lg)) {
+            Text("Trade Expectation", style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             Text(formatMoney(expectancy), color = pnlColor(expectancy), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
-            Text("Expected P&L per trade", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            Text("Expected P&L per trade", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Space.xs))
         }
     }
 }
@@ -526,7 +562,7 @@ private fun TradeExpectationCard(expectancy: BigDecimal, modifier: Modifier = Mo
 private fun Breakdown(title: String, buckets: List<BucketPnl>, byCount: Boolean, modifier: Modifier = Modifier) {
     SectionCard(title, modifier) {
         if (buckets.isEmpty()) {
-            Text("No trades yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@SectionCard
         }
         if (byCount) {
@@ -552,12 +588,12 @@ private fun BreakdownPair(distTitle: String, perfTitle: String, buckets: List<Bu
 /** Count row: label + count + a neutral magnitude bar (the "distribution" half of a breakdown pair). */
 @Composable
 private fun CountRow(label: String, count: Int, max: Int) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(count.toString(), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
         }
-        Box(modifier = Modifier.fillMaxWidth().padding(top = 5.dp).height(4.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(2.dp))) {
+        Box(modifier = Modifier.fillMaxWidth().padding(top = Space.xs).height(4.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(2.dp))) {
             Box(Modifier.fillMaxWidth((count.toFloat() / max).coerceIn(0f, 1f)).height(4.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
         }
     }
@@ -626,20 +662,22 @@ private fun WinLossDaysView(trades: List<TradeEntity>, executions: List<Executio
 private fun DaysDonut(winningDays: Int, losingDays: Int) {
     val tc = LocalTradeColors.current
     val total = winningDays + losingDays
+    // No data ≠ all losses: the base ring is only Loss Red once there's a day to classify.
+    val ring = if (total > 0) tc.loss else MaterialTheme.colorScheme.surfaceVariant
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(Space.lg),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Canvas(modifier = Modifier.size(72.dp)) {
                     val stroke = 12.dp.toPx()
-                    drawArc(tc.loss, -90f, 360f, false, style = Stroke(stroke))
+                    drawArc(ring, -90f, 360f, false, style = Stroke(stroke))
                     if (total > 0) drawArc(tc.gain, -90f, 360f * winningDays / total, false, style = Stroke(stroke))
                 }
             }
-            Column(modifier = Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(modifier = Modifier.padding(start = Space.lg), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 LegendRow(tc.gain, "Winning days", winningDays)
                 LegendRow(tc.loss, "Losing days", losingDays)
             }
@@ -698,18 +736,19 @@ private fun DrawdownStatsCard(s: DrawdownStats) {
     val loss = LocalTradeColors.current.loss
     val plain = MaterialTheme.colorScheme.onSurface
     fun ri(x: Double) = (x + 0.5).toInt().toString()
-    val stats = listOf(
-        Stat("Average drawdown:", formatMoney(ZERO.subtract(s.avgDrawdown)), loss),
-        Stat("Biggest Drawdown:", formatMoney(ZERO.subtract(s.biggest)), loss),
-        Stat("Average number of days in Drawdown:", ri(s.avgDays), plain),
-        Stat("Number of days in Drawdown:", s.totalDays.toString(), plain),
-        Stat("Average trades in Drawdown:", ri(s.avgTrades), plain),
-        Stat("", "", plain),
-    )
+    // Labels match the Stats grid's voice: Title Case, no trailing colon (same StatCell renders both).
     val cols = if (LocalCompact.current) 1 else 2 // ponytail: single column keeps drawdown labels legible on phone
+    val stats = listOf(
+        Stat("Average Drawdown", formatMoney(ZERO.subtract(s.avgDrawdown)), loss),
+        Stat("Biggest Drawdown", formatMoney(ZERO.subtract(s.biggest)), loss),
+        Stat("Average Number of Days in Drawdown", ri(s.avgDays), plain),
+        Stat("Number of Days in Drawdown", s.totalDays.toString(), plain),
+        Stat("Average Trades in Drawdown", ri(s.avgTrades), plain),
+        Stat("", "", plain),
+    ).let { if (cols == 1) it.filter { st -> st.label.isNotEmpty() } else it }
     GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Statistics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+        Column(modifier = Modifier.padding(Space.lg)) {
+            Text("Statistics", style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
             stats.chunked(cols).forEachIndexed { i, row ->
                 if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Row(modifier = Modifier.fillMaxWidth()) {
