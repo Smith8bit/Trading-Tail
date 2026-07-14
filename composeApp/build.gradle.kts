@@ -36,6 +36,7 @@ kotlin {
             implementation(compose.components.resources)
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.sqlite.bundled)
+            implementation(libs.haze) // backdrop blur for the glass chrome (sidebar/bars)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

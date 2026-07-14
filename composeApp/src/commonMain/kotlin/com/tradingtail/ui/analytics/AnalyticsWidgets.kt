@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
+import com.tradingtail.ui.theme.GlassCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -177,7 +177,7 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
 
 @Composable
 internal fun KpiTile(label: String, value: String, valueColor: Color = Color.Unspecified, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(
                 label,
@@ -201,7 +201,7 @@ internal fun KpiTile(label: String, value: String, valueColor: Color = Color.Uns
 @Composable
 internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: BigDecimal, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
     val colors = LocalTradeColors.current
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text("Cumulative P&L", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
@@ -225,7 +225,7 @@ internal fun CumulativeCard(series: List<Float>, dates: List<String>, total: Big
 @Composable
 internal fun DrawdownCard(series: List<Float>, dates: List<String>, maxDd: BigDecimal, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
     val colors = LocalTradeColors.current
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text("Cumulative Drawdown", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             val shown = ZERO.subtract(maxDd) // report the max drawdown as a signed loss figure
@@ -500,7 +500,7 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
     val grid = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val hoverTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) // brightens the hovered bar
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (points.isEmpty()) {
@@ -661,7 +661,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val dotRing = MaterialTheme.colorScheme.surface // halo so the hover dots read over the lines
     val n = series.firstOrNull()?.values?.size ?: 0
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (n < 2) {
@@ -730,7 +730,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
 /** Half-donut gauge (Profit Factor, Largest gain/loss split) — foreground arc over a track. */
 @Composable
 internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Color, track: Color, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxHeight().padding(Space.lg), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
             // Centered in the remaining (square) space: the dial with its value sitting in the arc.
@@ -756,7 +756,7 @@ internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Co
  */
 @Composable
 internal fun PlaceholderCard(title: String, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg).height(56.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("n/a — needs market data", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Space.xs))
@@ -767,7 +767,7 @@ internal fun PlaceholderCard(title: String, modifier: Modifier = Modifier) {
 /** Mock's "Average … Trade" widgets. Money averages — the app's one sanctioned money division. */
 @Composable
 internal fun AveragesCard(avg: Averages, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Average Winning Trade vs Losing Trade", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             FigureRow("Average trade", avg.perTrade)
@@ -780,7 +780,7 @@ internal fun AveragesCard(avg: Averages, modifier: Modifier = Modifier) {
 /** Mock's "Hold Time Winning vs Losing Trades" widget: mean time in the position by outcome. */
 @Composable
 internal fun HoldTimeCard(winnerMs: Long?, loserMs: Long?, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Hold Time Winning Trades vs Losing Trades", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             DurationRow("Winners", winnerMs)
@@ -807,7 +807,7 @@ private fun DurationRow(label: String, ms: Long?) {
 internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, title: String = "Winning vs Losing Trades") {
     val colors = LocalTradeColors.current
     val decided = win.wins + win.losses
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(
@@ -865,7 +865,7 @@ internal fun LegendRow(dot: Color, label: String, count: Int) {
 /** Largest single-trade gain and loss — no averaging (money division stays out of the app). */
 @Composable
 internal fun BestWorstCard(bw: BestWorst, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Text("Largest Gain vs Largest Loss", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             FigureRow("Largest gain", bw.largestGain)
@@ -938,7 +938,7 @@ internal fun BarRow(label: String, pnl: BigDecimal, max: BigDecimal, percent: Fl
 
 @Composable
 internal fun SectionCard(title: String, modifier: Modifier = Modifier, fill: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fill) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text(
                 title,

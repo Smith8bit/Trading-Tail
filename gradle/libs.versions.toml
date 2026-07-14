@@ -11,6 +11,7 @@ room = "2.7.1"
 sqlite = "2.5.1"
 pdfbox = "3.0.3"
 pdfboxAndroid = "2.0.27.0"
+haze = "1.4.0" # last line built against CMP 1.7.x (1.5.0 moves to CMP 1.8)
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
@@ -19,6 +20,7 @@ androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref =
 androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
 pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 pdfbox-android = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfboxAndroid" }
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

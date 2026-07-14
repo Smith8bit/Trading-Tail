@@ -16,7 +16,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
+import com.tradingtail.ui.theme.GlassCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -120,7 +120,7 @@ private fun DayHeader(day: BkkDate, subtotal: BigDecimal) {
 private fun TradeRow(trade: TradeEntity, onDelete: () -> Unit) {
     var confirmOpen by remember { mutableStateOf(false) }
 
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = Space.md, top = Space.xs, bottom = Space.xs),
             verticalAlignment = Alignment.CenterVertically,

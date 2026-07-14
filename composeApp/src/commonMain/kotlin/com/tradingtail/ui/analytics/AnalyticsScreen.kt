@@ -27,7 +27,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
+import com.tradingtail.ui.theme.GlassCard
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -291,7 +291,7 @@ private fun ChipRow(items: List<String>, selected: String, onSelect: (String) ->
 /** A titled line-chart card (Cumulative P&L in the Recent grid) — reuses the shared line canvas. */
 @Composable
 private fun LineCard(title: String, series: List<Float>, dates: List<String>, line: Color, modifier: Modifier = Modifier, fillHeight: Boolean = false) {
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
             if (series.size < 2) {
@@ -425,7 +425,7 @@ private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntit
     val stats = statList(trades, executions)
     // ponytail: 3-up columns crush the long labels on a phone → 1 col when compact, full width per row.
     val cols = if (LocalCompact.current) 1 else 3
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Stats", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
             stats.chunked(cols).forEachIndexed { i, row ->
@@ -442,7 +442,7 @@ private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntit
 /** One column of the Win-vs-Loss split: a dot + title, then label-over-value metric rows. */
 @Composable
 private fun StatColumn(title: String, dot: Color, trades: List<TradeEntity>, executions: List<ExecutionEntity>, modifier: Modifier) {
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm), modifier = Modifier.padding(bottom = 12.dp)) {
                 Box(Modifier.size(9.dp).background(dot, RoundedCornerShape(3.dp)))
@@ -512,7 +512,7 @@ private fun WinLossExpectationSection(trades: List<TradeEntity>, win: WinRateSum
 /** Trade expectation = mean P&L per trade — the mock's "Trade Expectation" widget. */
 @Composable
 private fun TradeExpectationCard(expectancy: BigDecimal, modifier: Modifier = Modifier) {
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Trade Expectation", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
             Text(formatMoney(expectancy), color = pnlColor(expectancy), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
@@ -626,7 +626,7 @@ private fun WinLossDaysView(trades: List<TradeEntity>, executions: List<Executio
 private fun DaysDonut(winningDays: Int, losingDays: Int) {
     val tc = LocalTradeColors.current
     val total = winningDays + losingDays
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.Center,
@@ -707,7 +707,7 @@ private fun DrawdownStatsCard(s: DrawdownStats) {
         Stat("", "", plain),
     )
     val cols = if (LocalCompact.current) 1 else 2 // ponytail: single column keeps drawdown labels legible on phone
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Statistics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
             stats.chunked(cols).forEachIndexed { i, row ->

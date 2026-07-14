@@ -23,7 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedCard
+import com.tradingtail.ui.theme.GlassCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -169,7 +169,7 @@ private fun MonthCard(
         }
     }
 
-    OutlinedCard(modifier = modifier.fillMaxWidth()) {
+    GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(if (compact) Space.sm else Space.lg)) {
             // Header: month name (with nav) + running monthly P&L — stacks on narrow so it can't overflow.
             if (compact) {
@@ -337,7 +337,7 @@ private fun YearOverview(
 
 @Composable
 private fun MiniMonth(ym: YearMonth, isActive: Boolean, byDay: Map<BkkDate, DayPnl>, compact: Boolean, onOpen: () -> Unit, modifier: Modifier) {
-    OutlinedCard(modifier = modifier) {
+    GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(if (compact) Space.sm else Space.md)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(bottom = Space.sm),

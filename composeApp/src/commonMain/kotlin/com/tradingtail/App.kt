@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -35,12 +36,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,7 +74,12 @@ import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
+import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.TradingTailTheme
+import com.tradingtail.ui.theme.glassChrome
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 import com.tradingtail.ui.tradeentry.QuickTradeEntryScreen
 import com.tradingtail.ui.tradeentry.QuickTradeEntryViewModel
 import kotlinx.coroutines.launch
@@ -123,14 +130,23 @@ fun App(module: AppModule) {
 
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp
-            ImmersiveBackground(Modifier.matchParentSize())
+            // One haze source (the immersive ground); the glass chrome panels blur what's behind them.
+            val hazeState = remember { HazeState() }
+            ImmersiveBackground(Modifier.matchParentSize().hazeSource(hazeState))
+            // Transparent containers break contentColorFor's chain (it falls back to an unset local →
+            // black text on the dark canvas). Pin the content color once for the whole shell.
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
-                topBar = { if (!wide) MobileTopBar(onImport) },
+                topBar = { if (!wide) MobileTopBar(onImport, hazeState) },
                 bottomBar = {
                     if (!wide) {
-                        NavigationBar(containerColor = LocalTradeColors.current.glass, tonalElevation = 0.dp) {
+                        NavigationBar(
+                            modifier = Modifier.hazeEffect(hazeState, glassChrome()),
+                            containerColor = Color.Transparent,
+                            tonalElevation = 0.dp,
+                        ) {
                             Screen.entries.forEach { s ->
                                 NavigationBarItem(
                                     selected = screen == s,
@@ -147,13 +163,14 @@ fun App(module: AppModule) {
             ) { padding ->
                 if (wide) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-                        Sidebar(current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport)
-                        VerticalDivider()
+                        // Floating glass panel — no divider; the inset + sheen border do the separation.
+                        Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport)
                         ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
                     }
                 } else {
                     ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.padding(padding))
                 }
+            }
             }
         }
 
@@ -167,10 +184,14 @@ fun App(module: AppModule) {
                     // compact measures the real window, not the dialog's own ≤560dp width (which would
                     // always read narrow) — same threshold as the rest of the app.
                     val compact = maxWidth < 600.dp
+                    val tc = LocalTradeColors.current
                     Surface(
                         modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(if (compact) 0.96f else 0.92f).heightIn(max = 640.dp),
                         shape = RoundedCornerShape(Radii.xl),
-                        color = MaterialTheme.colorScheme.surface,
+                        // Glass sheet: near-solid so the form stays legible, but the dimmed shell ghosts through.
+                        color = tc.glass.copy(alpha = 0.94f),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        border = BorderStroke(1.dp, tc.sheen),
                     ) {
                         QuickTradeEntryScreen(
                             vm = quickVm,
@@ -193,10 +214,13 @@ fun App(module: AppModule) {
                 onDismissRequest = { importFills = null },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
+                val tc = LocalTradeColors.current
                 Surface(
                     modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
                     shape = RoundedCornerShape(Radii.xl),
-                    color = MaterialTheme.colorScheme.surface,
+                    color = tc.glass.copy(alpha = 0.94f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    border = BorderStroke(1.dp, tc.sheen),
                 ) {
                     ImportPreviewContent(
                         fills = fills,
@@ -228,28 +252,30 @@ private fun CaptureFab(onClick: () -> Unit) {
 // instead of hiding a single item behind an overflow menu.
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun MobileTopBar(onImport: () -> Unit) {
+private fun MobileTopBar(onImport: () -> Unit, hazeState: HazeState) {
     TopAppBar(
+        modifier = Modifier.hazeEffect(hazeState, glassChrome()),
         title = { Text("Trading Tail") },
         actions = {
             TextButton(onClick = onImport) { Text("Import") }
         },
-        // Glass edge over the immersive canvas.
         colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
-            containerColor = LocalTradeColors.current.glass,
+            containerColor = Color.Transparent,
         ),
     )
 }
 
-/** Desktop sidebar, styled after the dashboard mock: solid brand mark, nav, primary CTA, account. */
+/** Desktop sidebar: a floating glass panel — inset from the window edge, real backdrop blur + frost. */
 @Composable
-private fun Sidebar(current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit) {
+private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit) {
     val tc = LocalTradeColors.current
+    val shape = RoundedCornerShape(20.dp)
     Column(
-        modifier = Modifier.fillMaxHeight().width(232.dp)
-            // Glass edge: translucent panel over the immersive canvas, so the ambient glow bleeds through.
-            // ponytail: real backdrop blur needs the Haze lib; translucency reads as glass-lite, no new dep.
-            .background(tc.glass)
+        modifier = Modifier.fillMaxHeight().width(256.dp)
+            .padding(Space.md) // inset margin — the panel floats over the immersive ground
+            .clip(shape)
+            .hazeEffect(hazeState, glassChrome()) // real blur + noise; tint comes from the style
+            .border(1.dp, tc.sheen, shape)
             .padding(horizontal = 12.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -364,22 +390,31 @@ private fun ImmersiveBackground(modifier: Modifier) {
     val base = MaterialTheme.colorScheme.background
     val accent = MaterialTheme.colorScheme.primary
     val dark = isSystemInDarkTheme()
-    val a1 = if (dark) 0.16f else 0.06f
-    val a2 = if (dark) 0.10f else 0.04f
+    // Strong enough to bleed through the translucent glass tiles; still chrome, not decoration.
+    val a1 = if (dark) 0.26f else 0.10f
+    val a2 = if (dark) 0.16f else 0.07f
+    val a3 = if (dark) 0.12f else 0.05f
     Box(modifier.drawBehind {
         drawRect(base)
         drawRect(
             Brush.radialGradient(
                 colors = listOf(accent.copy(alpha = a1), Color.Transparent),
-                center = Offset(size.width * 0.82f, size.height * -0.02f),
-                radius = size.maxDimension * 0.55f,
+                center = Offset(size.width * 0.85f, size.height * -0.05f),
+                radius = size.maxDimension * 0.62f,
             ),
         )
         drawRect(
             Brush.radialGradient(
                 colors = listOf(accent.copy(alpha = a2), Color.Transparent),
-                center = Offset(size.width * -0.02f, size.height * 1.02f),
-                radius = size.maxDimension * 0.5f,
+                center = Offset(size.width * -0.05f, size.height * 1.05f),
+                radius = size.maxDimension * 0.55f,
+            ),
+        )
+        drawRect(
+            Brush.radialGradient(
+                colors = listOf(accent.copy(alpha = a3), Color.Transparent),
+                center = Offset(size.width * 0.30f, size.height * 0.45f),
+                radius = size.maxDimension * 0.40f,
             ),
         )
     })

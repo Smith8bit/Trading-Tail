@@ -96,6 +96,7 @@ data class TradeColors(
     val lossFill: Color,
     val accent: Color,
     val glass: Color,
+    val sheen: Color, // 1px glass border highlight — the light edge that sells the material
 )
 
 private val DarkTradeColors = TradeColors(
@@ -105,7 +106,8 @@ private val DarkTradeColors = TradeColors(
     gainFill = Color(0xFF5FD48A).copy(alpha = 0.16f),
     lossFill = Color(0xFFF0736F).copy(alpha = 0.16f),
     accent = Color(0xFF4D8BFF),
-    glass = Color(0xFF10151F).copy(alpha = 0.55f),
+    glass = Color(0xFF141B27).copy(alpha = 0.62f),
+    sheen = Color(0xFFFFFFFF).copy(alpha = 0.10f),
 )
 
 private val LightTradeColors = TradeColors(
@@ -115,7 +117,8 @@ private val LightTradeColors = TradeColors(
     gainFill = Color(0xFF2E7D32).copy(alpha = 0.12f),
     lossFill = Color(0xFFC62828).copy(alpha = 0.12f),
     accent = Color(0xFF005FFF),
-    glass = Color(0xFFFFFFFF).copy(alpha = 0.72f),
+    glass = Color(0xFFFFFFFF).copy(alpha = 0.66f),
+    sheen = Color(0xFFD4DCE7), // on light, the hairline defines the glass edge (white sheen is invisible)
 )
 
 val LocalTradeColors = staticCompositionLocalOf { DarkTradeColors }
