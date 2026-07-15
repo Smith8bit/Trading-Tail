@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -100,13 +101,13 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
             modifier = Modifier.padding(top = Space.md, bottom = if (compact) Space.md else Space.sm),
         )
         DateRangeBar(fromDate, toDate, now) { f, t -> fromDate = f; toDate = t }
-        // Top-level report switcher as card tabs — bold filled cards, the active one owning the
-        // content below. (Replaced the M3 TabRow whose blue labels + hairline sat illegibly on the
-        // aurora gradient.) Sub-switchers below drop to a segmented control — a step down the hierarchy.
-        CardTabs(tabs, tab) { tab = it }
-
+        // Top-level switcher as a Chrome-style tab sheet: the active head opens into the outlined
+        // panel below, so head + content read as one sheet of paper. (Replaced the M3 TabRow whose
+        // blue labels + hairline sat illegibly on the aurora.) Sub-switchers inside the sheet drop to
+        // a segmented control — a step down the hierarchy.
+        TabSheet(tabs, tab, onSelect = { tab = it }, modifier = Modifier.fillMaxSize().padding(bottom = Space.md)) {
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = Space.md),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Space.md),
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             when (tab) {
@@ -131,6 +132,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
                 2 -> WinLossDaysView(trades, executions)
                 3 -> DrawdownView(trades)
             }
+        }
         }
         }
         }
@@ -212,26 +214,55 @@ private fun DateRangeBar(from: BkkDate?, to: BkkDate?, now: Long, onRange: (BkkD
     }
 }
 
+/**
+ * The day-range bar's shared field skin. These sit on the bare aurora, so they need a surface of
+ * their own: the fields used to be a 1px outline over the gradient with no fill (near-invisible),
+ * and the preset picker a different material again. One opaque skin for both; [active] (a value is
+ * set) trades the sheen hairline for a primary edge so a live filter is obvious at a glance.
+ */
+@Composable
+private fun FieldSkin(active: Boolean, onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
+    val shape = RoundedCornerShape(Radii.sm) // a field, not a chip
+    Row(
+        modifier = Modifier.clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, if (active) MaterialTheme.colorScheme.primary else LocalTradeColors.current.sheen, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Space.md, vertical = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        content = content,
+    )
+}
+
 /** Dropdown of the range presets (Today, Last 7 days, YTD, …). */
 @Composable
 private fun PresetPicker(selected: RangePreset?, hasDates: Boolean, onSelect: (RangePreset) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        Box(
-            modifier = Modifier.clip(RoundedCornerShape(Radii.md)).background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { open = true }.padding(horizontal = Space.md, vertical = Space.sm),
-        ) {
+        FieldSkin(active = selected != null, onClick = { open = true }) {
             Text(
                 // No preset + no manual dates = the reports really cover everything — say so.
-                (selected?.label ?: if (hasDates) "Custom range" else "All time") + "  ▾",
-                color = if (selected == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                selected?.label ?: if (hasDates) "Custom range" else "All time",
+                // "All time" is the real scope, not a placeholder — it reads at full contrast.
+                color = if (selected == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
             )
+            Text("▾", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (p in RangePreset.entries) {
-                DropdownMenuItem(text = { Text(p.label) }, onClick = { open = false; onSelect(p) })
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            p.label,
+                            color = if (p == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (p == selected) FontWeight.Medium else FontWeight.Normal,
+                        )
+                    },
+                    onClick = { open = false; onSelect(p) },
+                )
             }
         }
     }
@@ -242,16 +273,14 @@ private fun PresetPicker(selected: RangePreset?, hasDates: Boolean, onSelect: (R
 @Composable
 private fun DateField(date: BkkDate?, placeholder: String, onPick: (BkkDate) -> Unit) {
     var show by remember { mutableStateOf(false) }
-    Box(
-        // Radii.sm = the input-field corner (AppShapes.extraSmall) — this is a field, not a chip.
-        modifier = Modifier.clip(RoundedCornerShape(Radii.sm))
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(Radii.sm))
-            .clickable { show = true }.padding(horizontal = Space.md, vertical = Space.sm),
-    ) {
+    FieldSkin(active = date != null, onClick = { show = true }) {
         Text(
             date?.let { "${it.year}-${two(it.month)}-${two(it.day)}" } ?: placeholder,
+            // A set date is data (mono, like every other figure); the placeholder stays muted label text.
             color = if (date == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.labelLarge,
+            fontFamily = if (date == null) null else FontFamily.Monospace,
+            fontWeight = if (date == null) FontWeight.Normal else FontWeight.Medium,
         )
     }
     if (show) {

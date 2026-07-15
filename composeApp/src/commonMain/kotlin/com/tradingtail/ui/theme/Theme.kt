@@ -21,18 +21,30 @@ import com.tradingtail.common.ZERO
 // ── Dark: immersive near-black ground, deep-blue tint. background (#080B12) sits under surface
 // (#10151F) so bento tiles read as raised. onSurfaceVariant #8A97A9 clears 4.5:1 on surface.
 // Webull blue #005FFF carries white text at ~5:1, so it fills buttons directly on both themes.
+//
+// EVERY slot is set on purpose: an unset one silently falls back to M3's baseline lavender, and the
+// components that pick their own container (DropdownMenu → surfaceContainer, DatePickerDialog /
+// AlertDialog → surfaceContainerHigh, ModalBottomSheet → surfaceContainerLow, Snackbar →
+// inverseSurface) would drag that purple into the app. Add a slot here before using a new component.
 private val DarkColors = darkColorScheme(
     primary = Color(0xFF005FFF),
     onPrimary = Color(0xFFFFFFFF),
 
     primaryContainer = Color(0xFF0A3FA8),
     onPrimaryContainer = Color(0xFFE8EEFB),
+    inversePrimary = Color(0xFFB8CEFF),
 
     secondary = Color(0xFF4D8BFF),
     onSecondary = Color(0xFF04121F),
 
     secondaryContainer = Color(0xFF1A2230),
     onSecondaryContainer = Color(0xFFE9EEF5),
+
+    // No third brand hue — tertiary mirrors the sky-blue accent so nothing can drift off-palette.
+    tertiary = Color(0xFF4D8BFF),
+    onTertiary = Color(0xFF04121F),
+    tertiaryContainer = Color(0xFF1A2230),
+    onTertiaryContainer = Color(0xFFE9EEF5),
 
     background = Color(0xFF080B12),
     onBackground = Color(0xFFE9EEF5),
@@ -42,28 +54,53 @@ private val DarkColors = darkColorScheme(
 
     surfaceVariant = Color(0xFF1A2230),
     onSurfaceVariant = Color(0xFF8A97A9),
+    surfaceTint = Color(0xFF005FFF),
+
+    // The container ramp M3 reaches for on its own: menus/sheets land on the tile tone, dialogs a
+    // step above it.
+    surfaceDim = Color(0xFF080B12),
+    surfaceBright = Color(0xFF232E3D),
+    surfaceContainerLowest = Color(0xFF05070C),
+    surfaceContainerLow = Color(0xFF0B0F17),
+    surfaceContainer = Color(0xFF10151F),
+    surfaceContainerHigh = Color(0xFF1A2230),
+    surfaceContainerHighest = Color(0xFF232E3D),
+
+    inverseSurface = Color(0xFFE9EEF5),
+    inverseOnSurface = Color(0xFF10151F),
 
     outline = Color(0xFF212E40),
     outlineVariant = Color(0xFF18222F),
 
     error = Color(0xFFF0736F),
     onError = Color(0xFF3A0D0C),
+    errorContainer = Color(0xFF3A0D0C),
+    onErrorContainer = Color(0xFFFFD9D6),
+
+    scrim = Color(0xFF000000),
 )
 
 // ── Light: cool paper canvas (#EEF1F6) under white surfaces. Webull blue stays #005FFF (bright cyan
 // couldn't carry text here, but blue can). Muted ink #586576 clears 4.5:1 on white.
+// Same rule as the dark scheme: every slot set, no baseline lavender left to leak.
 private val LightColors = lightColorScheme(
     primary = Color(0xFF005FFF),
     onPrimary = Color(0xFFFFFFFF),
 
     primaryContainer = Color(0xFFD6E4FF),
     onPrimaryContainer = Color(0xFF00224D),
+    inversePrimary = Color(0xFFA8C7FF),
 
     secondary = Color(0xFF005FFF),
     onSecondary = Color(0xFFFFFFFF),
 
     secondaryContainer = Color(0xFFE3EBF6),
     onSecondaryContainer = Color(0xFF121822),
+
+    tertiary = Color(0xFF005FFF),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFD6E4FF),
+    onTertiaryContainer = Color(0xFF00224D),
 
     background = Color(0xFFEEF1F6),
     onBackground = Color(0xFF121822),
@@ -73,12 +110,29 @@ private val LightColors = lightColorScheme(
 
     surfaceVariant = Color(0xFFE9EEF4),
     onSurfaceVariant = Color(0xFF586576),
+    surfaceTint = Color(0xFF005FFF),
+
+    // Menus and dialogs stay white/near-white here — they're paper on the pale canvas.
+    surfaceDim = Color(0xFFD8DEE8),
+    surfaceBright = Color(0xFFFFFFFF),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFFAFBFD),
+    surfaceContainer = Color(0xFFFFFFFF),
+    surfaceContainerHigh = Color(0xFFF6F8FB),
+    surfaceContainerHighest = Color(0xFFE9EEF4),
+
+    inverseSurface = Color(0xFF121822),
+    inverseOnSurface = Color(0xFFEEF1F6),
 
     outline = Color(0xFFD4DCE7),
     outlineVariant = Color(0xFFE6EBF2),
 
     error = Color(0xFFC62828),
     onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF5C0F0F),
+
+    scrim = Color(0xFF000000),
 )
 
 

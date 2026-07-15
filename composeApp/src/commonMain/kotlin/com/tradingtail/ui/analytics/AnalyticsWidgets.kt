@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -32,7 +33,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -40,6 +44,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -126,36 +132,101 @@ internal fun ToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * The report's top-level switcher as **card tabs**: individual filled cards with gaps between them,
- * the active one a solid primary card that owns the content below; idle tabs are opaque surface cards
- * with a sheen edge so they stand off the aurora gradient. Bigger + bolder than the segmented
- * sub-switchers beneath. Scrolls horizontally when compact so no tab clips.
+ * Chrome-style **tab sheet**: tab heads sitting on a translucent content panel. One continuous path
+ * traces the active head *and* the panel with no line between them — filled with glass and stroked
+ * with a sheen hairline, so the two read as a single sheet of paper with a tab at its head. The idle
+ * heads are muted fills that tuck behind the sheet's top edge. Scrolls horizontally when compact.
+ *
+ * The sheet is translucent (the aurora glows through it) and the tiles inside it are opaque — that
+ * ordering is deliberate, and it's why tiles can't be frosted: see the note in Glass.kt.
  */
 @Composable
-internal fun CardTabs(items: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+internal fun TabSheet(
+    items: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     val tc = LocalTradeColors.current
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+    val radius = with(LocalDensity.current) { Radii.md.toPx() }
+    val stroke = with(LocalDensity.current) { 1.dp.toPx() }
+    // Plain holder, not State: it's only written and read inside layout callbacks, and a State read
+    // there would re-invalidate layout every pass. `head` IS State — written in layout, read in draw.
+    val root = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    var head by remember { mutableStateOf(Rect.Zero) }
+
+    Box(
+        modifier
+            .onGloballyPositioned { root[0] = it }
+            .drawWithContent {
+                val sheet = if (head.width > 1f) sheetOutline(head, size, radius) else null
+                // Fill under the content, stroke over it: the edge then crosses the idle heads'
+                // bottoms, which is what tucks them behind the sheet.
+                sheet?.let { drawPath(it, tc.glass) }
+                drawContent()
+                sheet?.let { drawPath(it, tc.sheen, style = Stroke(stroke)) }
+            },
     ) {
-        items.forEachIndexed { i, label ->
-            val isSel = i == selected
-            val shape = RoundedCornerShape(Radii.md)
-            Box(
-                modifier = Modifier.clip(shape)
-                    .background(if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                    .then(if (isSel) Modifier else Modifier.border(1.dp, tc.sheen, shape))
-                    .clickable { onSelect(i) }
-                    .padding(horizontal = Space.lg, vertical = Space.md),
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Space.xs),
             ) {
-                Text(
-                    label,
-                    color = if (isSel) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                items.forEachIndexed { i, label ->
+                    val isSel = i == selected
+                    Box(
+                        modifier = Modifier
+                            // Only the active head reports; the outline routes around wherever it lands
+                            // (localBoundingBoxOf resolves the strip's scroll for free).
+                            .then(
+                                if (isSel) Modifier.onGloballyPositioned { c ->
+                                    root[0]?.let { head = it.localBoundingBoxOf(c, clipBounds = false) }
+                                } else Modifier,
+                            )
+                            .clip(RoundedCornerShape(topStart = Radii.md, topEnd = Radii.md))
+                            .background(if (isSel) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { onSelect(i) }
+                            .padding(horizontal = Space.lg, vertical = Space.md),
+                    ) {
+                        Text(
+                            label,
+                            // The active head has no fill of its own — the sheet's glass is drawn
+                            // under it, so its label is on-surface like the sheet's contents.
+                            color = if (isSel) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Medium,
+                        )
+                    }
+                }
             }
+            Box(Modifier.weight(1f).fillMaxWidth()) { content() }
         }
+    }
+}
+
+/** The tab-sheet silhouette: up and over the active head, then around the panel — open under the head. */
+private fun sheetOutline(head: Rect, size: Size, r: Float): Path {
+    val top = head.bottom // the panel's top edge — the seam the head opens into
+    val w = size.width
+    val h = size.height
+    val l = head.left.coerceIn(0f, w) // a part-scrolled head still yields a sane path
+    val rt = head.right.coerceIn(l, w)
+    val hr = r.coerceAtMost(head.height / 2f)
+    return Path().apply {
+        moveTo(0f, h - r)
+        lineTo(0f, top)                                   // panel's left side
+        lineTo(l, top)                                    // top edge, left of the head
+        lineTo(l, head.top + hr)                          // up the head's left side
+        quadraticBezierTo(l, head.top, l + hr, head.top)
+        lineTo(rt - hr, head.top)                         // across the head's top
+        quadraticBezierTo(rt, head.top, rt, head.top + hr)
+        lineTo(rt, top)                                   // down the head's right side
+        lineTo(w, top)                                    // top edge, right of the head
+        lineTo(w, h - r)                                  // panel's right side
+        quadraticBezierTo(w, h, w - r, h)
+        lineTo(r, h)                                      // panel's bottom
+        quadraticBezierTo(0f, h, 0f, h - r)
     }
 }
 
@@ -216,11 +287,16 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
             horizontalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             for (d in days) {
-                val border = if (d.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                // Opaque like every other data surface — a bare outline here left the aurora showing
+                // through a strip of figures that sits right above a row of solid tiles.
+                val shape = RoundedCornerShape(Radii.md)
+                val border = if (d.isToday) MaterialTheme.colorScheme.primary else LocalTradeColors.current.sheen
                 Column(
                     modifier = (if (compact) Modifier.widthIn(min = 92.dp) else Modifier.weight(1f))
                         .height(84.dp)
-                        .border(1.dp, border, RoundedCornerShape(Radii.md))
+                        .clip(shape)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, border, shape)
                         .padding(Space.md),
                 ) {
                     Text(

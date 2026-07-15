@@ -71,7 +71,6 @@ import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.imports.ImportPreviewContent
 import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
-import com.tradingtail.ui.theme.LocalHazeState
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
@@ -134,16 +133,13 @@ fun App(module: AppModule) {
 
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp
-            // One haze source (the immersive ground); the glass chrome panels blur what's behind them.
+            // One haze source (the aurora ground); the glass chrome panels blur what's behind them.
+            // Data tiles don't — they're opaque now, see Glass.kt.
             val hazeState = remember { HazeState() }
             ImmersiveBackground(dark, Modifier.matchParentSize().hazeSource(hazeState))
             // Transparent containers break contentColorFor's chain (it falls back to an unset local →
-            // black text on the dark canvas). Pin the content color once for the whole shell, and hand
-            // the haze source to every GlassCard so tiles frost the aurora without parameter-threading.
-            CompositionLocalProvider(
-                LocalContentColor provides MaterialTheme.colorScheme.onBackground,
-                LocalHazeState provides hazeState,
-            ) {
+            // black text on the dark canvas). Pin the content color once for the whole shell.
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
