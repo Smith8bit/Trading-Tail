@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 class ExecutionRepository(private val dao: ExecutionDao) {
     suspend fun add(execution: ExecutionEntity): Long = dao.insert(execution)
     suspend fun addAll(executions: List<ExecutionEntity>): List<Long> = dao.insertAll(executions)
+    suspend fun update(execution: ExecutionEntity) = dao.update(execution)
     suspend fun bySymbol(symbol: String): List<ExecutionEntity> = dao.bySymbol(symbol)
     suspend fun all(): List<ExecutionEntity> = dao.all()
     fun allFlow(): Flow<List<ExecutionEntity>> = dao.allFlow()

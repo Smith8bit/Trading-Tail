@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -35,7 +37,9 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +49,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,20 +63,24 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.tradingtail.ui.analytics.AnalyticsScreen
 import com.tradingtail.ui.analytics.AnalyticsViewModel
 import com.tradingtail.ui.analytics.DashboardScreen
-import com.tradingtail.data.imports.ParsedFill
+import com.tradingtail.data.local.entity.TradeEntity
 import com.tradingtail.data.imports.pickPdfBytes
+import com.tradingtail.domain.usecase.ImportPreview
 import com.tradingtail.ui.calendar.CalendarScreen
 import com.tradingtail.ui.calendar.CalendarViewModel
 import com.tradingtail.ui.imports.ImportPreviewContent
 import com.tradingtail.ui.journal.JournalScreen
 import com.tradingtail.ui.journal.JournalViewModel
 import com.tradingtail.ui.theme.LocalTradeColors
+import com.tradingtail.ui.tradedetail.TradeDetailScreen
+import com.tradingtail.ui.tradedetail.TradeDetailViewModel
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.TradingTailTheme
@@ -102,25 +111,23 @@ fun App(module: AppModule) {
     val systemDark = isSystemInDarkTheme()
     var dark by remember { mutableStateOf(systemDark) }
     TradingTailTheme(darkTheme = dark) {
-        var screen by remember { mutableStateOf(Screen.Dashboard) }
-        var showEntry by remember { mutableStateOf(false) }
-        var importFills by remember { mutableStateOf<List<ParsedFill>?>(null) }
+        var screen by rememberSaveable { mutableStateOf(Screen.Dashboard) }
+        var showEntry by rememberSaveable { mutableStateOf(false) }
+        var importPreview by remember { mutableStateOf<ImportPreview?>(null) }
+        // The open trade detail, held as an EXECUTION id rather than a trade id: correcting a fill
+        // re-derives the symbol's trades, so every trade row id churns. Fills are the durable rows.
+        var detailAnchor by rememberSaveable { mutableStateOf<Long?>(null) }
         val snackbar = remember { SnackbarHostState() }
         val scope = rememberCoroutineScope()
 
-        // Pick a Webull PDF → parse → stash fills for the confirm dialog.
+        // Pick a Webull PDF → parse → stash the resolved preview for the confirm gate.
         val onImport: () -> Unit = {
-            scope.launch {
-                val bytes = pickPdfBytes() ?: return@launch
-                runCatching { module.importWebullPdf.preview(bytes) }
-                    .onSuccess { importFills = it }
-                    .onFailure { snackbar.showSnackbar("Couldn't read that PDF") }
-            }
+            scope.launch { runImport(module, snackbar) { importPreview = it } }
         }
 
-        val journalVm = remember { JournalViewModel(module.tradeRepo, module.deleteTrade) }
+        val journalVm = remember { JournalViewModel(module.tradeRepo) }
         val quickVm = remember { QuickTradeEntryViewModel(module.recordQuickTrade) }
-        val calendarVm = remember { CalendarViewModel(module.tradeRepo, module.calculateCalendarPnl) }
+        val calendarVm = remember { CalendarViewModel(module.tradeRepo, module.tradeNoteRepo, module.calculateCalendarPnl) }
         val analyticsVm = remember {
             AnalyticsViewModel(
                 module.tradeRepo,
@@ -140,6 +147,47 @@ fun App(module: AppModule) {
             // Transparent containers break contentColorFor's chain (it falls back to an unset local →
             // black text on the dark canvas). Pin the content color once for the whole shell.
             CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+            val anchor = detailAnchor
+            if (showEntry) {
+                // A pushed full-screen surface, per DESIGN.md's nav spec ("a full-screen overlay with a
+                // back arrow, not a tab"). It was a Dialog, whose dismiss-on-outside-tap destroyed all
+                // eight fields of hand-typed money with no confirmation — the app's worst bug, on its
+                // highest-traffic path. The form now owns back and guards a dirty form itself.
+                QuickTradeEntryScreen(
+                    vm = quickVm,
+                    onBack = { showEntry = false },
+                    onSaved = {
+                        showEntry = false
+                        screen = Screen.Journal
+                        scope.launch { snackbar.showSnackbar("Trade recorded") }
+                    },
+                    compact = !wide,
+                    // No Scaffold on this branch, so system-bar insets are this surface's own job.
+                    modifier = Modifier.fillMaxSize().systemBarsPadding(),
+                )
+                return@CompositionLocalProvider
+            }
+            if (anchor != null) {
+                // A pushed full-screen surface with a back arrow, over the same aurora — not a dialog.
+                // The shell's nav is deliberately gone: this is a place you leave, not a tab.
+                val detailVm = remember(anchor) {
+                    TradeDetailViewModel(
+                        anchorExecutionId = anchor,
+                        tradeRepo = module.tradeRepo,
+                        executionRepo = module.executionRepo,
+                        notesRepo = module.tradeNoteRepo,
+                        deleteTrade = module.deleteTrade,
+                        updateExecution = module.updateExecution,
+                    )
+                }
+                TradeDetailScreen(
+                    vm = detailVm,
+                    onBack = { detailAnchor = null },
+                    // No Scaffold here, so system-bar insets are this surface's own job.
+                    modifier = Modifier.fillMaxSize().systemBarsPadding(),
+                )
+                return@CompositionLocalProvider
+            }
             Scaffold(
                 containerColor = Color.Transparent,
                 snackbarHost = { SnackbarHost(snackbar) },
@@ -156,7 +204,20 @@ fun App(module: AppModule) {
                                     onClick = { screen = s },
                                     // label below carries the accessible name — null avoids a double read.
                                     icon = { Icon(s.icon, contentDescription = null) },
-                                    label = { Text(s.label) },
+                                    // labelSmall (12sp), not the inherited labelMedium: our type scale bumps
+                                    // labelMedium to 14sp, but M3 sizes nav labels for 12sp and a phone only
+                                    // gives each of four items ~90dp. Android then multiplies by the user's
+                                    // font-size setting, so 14sp wrapped "Dashboard" onto two lines. 12sp is
+                                    // M3's intended size and still on our scale (FontSize.xs). Mobile-only:
+                                    // the NavigationBar exists only when !wide — desktop uses the Sidebar.
+                                    label = {
+                                        Text(
+                                            s.label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis, // backstop at huge font scales
+                                        )
+                                    },
                                 )
                             }
                         }
@@ -168,17 +229,24 @@ fun App(module: AppModule) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
                         // Floating glass panel — no divider; the inset + sheen border do the separation.
                         Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport, dark = dark, onToggleTheme = { dark = !dark })
-                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.weight(1f).fillMaxSize())
+                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, onOpenTrade = { detailAnchor = it.entryExecutionIds.firstOrNull() }, onNewTrade = { showEntry = true }, modifier = Modifier.weight(1f).fillMaxSize())
                     }
                 } else {
-                    // No app bar on mobile — Import + theme toggle float over the immersive content, top-right.
+                    // No app bar on mobile — Import + theme float over the immersive content, bottom-LEFT,
+                    // mirroring the FAB across the thumb zone. They sat top-right until 2026-07-16: the
+                    // least reachable corner of a one-handed phone, and directly over the first day's
+                    // subtotal in the journal. Every scrolling screen had grown its own clearance hack to
+                    // dodge them (Journal reserved 48dp of contentPadding, Dashboard and Reports padded
+                    // their headers, Calendar forgot to and let the pill land on the MonthCard). Moving the
+                    // pill deleted all four. Keep it out of the top-right corner.
                     Box(Modifier.fillMaxSize().padding(padding)) {
-                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, Modifier.fillMaxSize())
+                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, onOpenTrade = { detailAnchor = it.entryExecutionIds.firstOrNull() }, onNewTrade = { showEntry = true }, modifier = Modifier.fillMaxSize())
                         FloatingActions(
+                            hazeState = hazeState,
                             dark = dark,
                             onToggleTheme = { dark = !dark },
                             onImport = onImport,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(Space.sm),
+                            modifier = Modifier.align(Alignment.BottomStart).padding(Space.md),
                         )
                     }
                 }
@@ -186,32 +254,37 @@ fun App(module: AppModule) {
             }
         }
 
-        // Quick Entry as a modal over the shell — sidebar/content stay visible (dimmed) behind it.
-        if (showEntry) {
+        // Statement import: preview the parsed fills, then commit on confirm.
+        importPreview?.let { preview ->
             Dialog(
-                onDismissRequest = { showEntry = false },
+                onDismissRequest = { importPreview = null },
                 properties = DialogProperties(usePlatformDefaultWidth = false),
             ) {
                 BoxWithConstraints {
-                    // compact measures the real window, not the dialog's own ≤560dp width (which would
-                    // always read narrow) — same threshold as the rest of the app.
+                    // Same real-window measure as Quick Entry above — the dialog's own capped width
+                    // would always read narrow.
                     val compact = maxWidth < 600.dp
                     val tc = LocalTradeColors.current
                     Surface(
                         modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(if (compact) 0.96f else 0.92f).heightIn(max = 640.dp),
                         shape = RoundedCornerShape(Radii.xl),
-                        // Glass sheet: near-solid so the form stays legible, but the dimmed shell ghosts through.
                         color = tc.glass.copy(alpha = 0.94f),
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         border = BorderStroke(1.dp, tc.sheen),
                     ) {
-                        QuickTradeEntryScreen(
-                            vm = quickVm,
-                            onBack = { showEntry = false },
-                            onSaved = {
-                                showEntry = false
-                                screen = Screen.Journal
-                                scope.launch { snackbar.showSnackbar("Trade recorded") }
+                        ImportPreviewContent(
+                            preview = preview,
+                            onCancel = { importPreview = null },
+                            onConfirm = {
+                                importPreview = null
+                                scope.launch {
+                                    val s = module.importWebullPdf.commit(preview.fills)
+                                    screen = Screen.Journal
+                                    snackbar.showSnackbar(
+                                        if (s.skipped > 0) "Imported ${s.executions} executions · ${s.skipped} duplicates skipped"
+                                        else "Imported ${s.executions} executions across ${s.symbols} symbols",
+                                    )
+                                }
                             },
                             compact = compact,
                         )
@@ -219,40 +292,38 @@ fun App(module: AppModule) {
                 }
             }
         }
-
-        // Statement import: preview the parsed fills, then commit on confirm.
-        importFills?.let { fills ->
-            Dialog(
-                onDismissRequest = { importFills = null },
-                properties = DialogProperties(usePlatformDefaultWidth = false),
-            ) {
-                val tc = LocalTradeColors.current
-                Surface(
-                    modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
-                    shape = RoundedCornerShape(Radii.xl),
-                    color = tc.glass.copy(alpha = 0.94f),
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    border = BorderStroke(1.dp, tc.sheen),
-                ) {
-                    ImportPreviewContent(
-                        fills = fills,
-                        onCancel = { importFills = null },
-                        onConfirm = {
-                            importFills = null
-                            scope.launch {
-                                val s = module.importWebullPdf.commit(fills)
-                                screen = Screen.Journal
-                                snackbar.showSnackbar(
-                                    if (s.skipped > 0) "Imported ${s.executions} executions · ${s.skipped} duplicates skipped"
-                                    else "Imported ${s.executions} executions across ${s.symbols} symbols",
-                                )
-                            }
-                        },
-                    )
-                }
-            }
-        }
     }
+}
+
+/**
+ * Pick a statement, parse it, hand the resolved preview to the confirm gate — or explain the failure
+ * and offer the retry inline.
+ *
+ * The old failure path was a bare "Couldn't read that PDF": no reason, so the user couldn't tell
+ * whether to retry, pick a different file, or give up, and no way back into the picker without
+ * hunting for the Import button again. Recursive on retry, which is the whole reason this is a
+ * function rather than a lambda in the composable — a lambda can't call itself.
+ */
+private suspend fun runImport(
+    module: AppModule,
+    snackbar: SnackbarHostState,
+    onPreview: (ImportPreview) -> Unit,
+) {
+    val bytes = pickPdfBytes() ?: return // user backed out of the picker; not a failure
+    runCatching { module.importWebullPdf.preview(bytes) }
+        .onSuccess(onPreview)
+        .onFailure { e ->
+            // The parser's own message is the specific one ("no trade rows found", a bad date, …);
+            // the fallback covers the common case of simply the wrong PDF.
+            val why = e.message?.takeIf { it.isNotBlank() }
+                ?: "it doesn't look like a Webull trade statement"
+            val action = snackbar.showSnackbar(
+                message = "Couldn't read that PDF — $why",
+                actionLabel = "Pick another",
+                duration = SnackbarDuration.Long,
+            )
+            if (action == SnackbarResult.ActionPerformed) runImport(module, snackbar, onPreview)
+        }
 }
 
 @Composable
@@ -263,11 +334,26 @@ private fun CaptureFab(onClick: () -> Unit) {
 // Mobile has no app bar or sidebar — these two controls float over the content instead. A glass pill
 // keeps them legible against whatever scrolls underneath.
 @Composable
-private fun FloatingActions(dark: Boolean, onToggleTheme: () -> Unit, onImport: () -> Unit, modifier: Modifier) {
+private fun FloatingActions(
+    hazeState: HazeState,
+    dark: Boolean,
+    onToggleTheme: () -> Unit,
+    onImport: () -> Unit,
+    modifier: Modifier,
+) {
     val tc = LocalTradeColors.current
     val shape = RoundedCornerShape(Radii.pill)
     Row(
-        modifier = modifier.clip(shape).background(tc.glass).border(1.dp, tc.sheen, shape).padding(horizontal = 4.dp),
+        modifier = modifier
+            .clip(shape)
+            // Real backdrop blur, like the sidebar and nav bar. This was a bare 50%-alpha fill with no
+            // hazeEffect — tier-2 chrome glass per DESIGN.md, implemented as a translucent panel that
+            // didn't blur, so trade rows scrolled visibly through it. (Measured impact was mild —
+            // 1.05:1 to 1.28:1 ghosting — but the material is the system's, not this panel's to opt out
+            // of.) The tint comes from the style, so no separate background().
+            .hazeEffect(hazeState, glassChrome())
+            .border(1.dp, tc.sheen, shape)
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ThemeToggleButton(dark, onToggleTheme)
@@ -278,7 +364,13 @@ private fun FloatingActions(dark: Boolean, onToggleTheme: () -> Unit, onImport: 
 // Show the mode you'll switch *to*: a sun while dark, a moon while light.
 @Composable
 private fun ThemeToggleButton(dark: Boolean, onClick: () -> Unit) {
-    androidx.compose.material3.IconButton(onClick = onClick) {
+    androidx.compose.material3.IconButton(
+        onClick = onClick,
+        // M3's IconButton is nominally 48dp, but measured 47.6dp wide on a Pixel 9 (125px at density
+        // 2.625) once the pill's horizontal padding took its cut. 0.4dp is nothing to a thumb — it is
+        // also the entire margin, and a floor costs one modifier.
+        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+    ) {
         Icon(
             if (dark) SunIcon else MoonIcon,
             contentDescription = if (dark) "Switch to light theme" else "Switch to dark theme",
@@ -329,7 +421,7 @@ private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) ->
 
         Spacer(Modifier.weight(1f))
 
-        // "New Trade" CTA — solid Signal Green, matching the "Record trade" button
+        // "New Trade" CTA — solid Signal Blue (the one chrome accent), matching "Record trade"
         Row(
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.md)).background(MaterialTheme.colorScheme.primary)
                 .clickable(onClick = onNewTrade).padding(vertical = 11.dp),
@@ -391,13 +483,15 @@ private fun ScreenContent(
     journalVm: JournalViewModel,
     calendarVm: CalendarViewModel,
     analyticsVm: AnalyticsViewModel,
+    onOpenTrade: (TradeEntity) -> Unit,
+    onNewTrade: () -> Unit,
     modifier: Modifier,
 ) {
     // Transparent so the immersive canvas + glow show through the bento tile gaps; tiles stay opaque surface.
     Surface(modifier = modifier, color = Color.Transparent) {
         when (screen) {
             Screen.Dashboard -> DashboardScreen(analyticsVm)
-            Screen.Journal -> JournalScreen(journalVm)
+            Screen.Journal -> JournalScreen(journalVm, onOpenTrade = onOpenTrade, onNewTrade = onNewTrade)
             Screen.Calendar -> CalendarScreen(calendarVm)
             Screen.Analytics -> AnalyticsScreen(analyticsVm, onOpenCalendar = { onNavigate(Screen.Calendar) })
         }

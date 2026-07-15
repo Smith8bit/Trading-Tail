@@ -183,6 +183,9 @@ fun TradingTailTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
+    // The system bars follow the app's theme, not the OS's — see SystemBarsEffect. It belongs here
+    // because this is the one place that knows which scheme is actually on screen.
+    SystemBarsEffect(darkTheme)
     CompositionLocalProvider(LocalTradeColors provides if (darkTheme) DarkTradeColors else LightTradeColors) {
         MaterialTheme(
             colorScheme = if (darkTheme) DarkColors else LightColors,

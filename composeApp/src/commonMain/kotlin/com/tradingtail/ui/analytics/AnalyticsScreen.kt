@@ -62,6 +62,7 @@ import com.tradingtail.domain.usecase.CalculatePnlByHour
 import com.tradingtail.domain.usecase.CalculateWinRate
 import com.tradingtail.domain.usecase.HourPnl
 import com.tradingtail.domain.usecase.WinRateSummary
+import com.tradingtail.ui.theme.FAB_CLEARANCE
 import com.tradingtail.ui.theme.GlassCard
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
@@ -71,8 +72,13 @@ import kotlin.math.roundToInt
 
 @Composable
 fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier: Modifier = Modifier) {
-    val allTrades by vm.trades.collectAsState(initial = emptyList())
-    val allExecutions by vm.executions.collectAsState(initial = emptyList())
+    // initial = null, not empty: "no data yet" and "haven't asked the database yet" are different
+    // facts. Conflating them made cold start render $0.00 across the board before Room's first
+    // emission — a figure the user could read and believe. Nothing renders during the gap.
+    val allTradesOrNull by vm.trades.collectAsState(initial = null)
+    val allExecutionsOrNull by vm.executions.collectAsState(initial = null)
+    val allTrades = allTradesOrNull ?: return
+    val allExecutions = allExecutionsOrNull ?: return
     val now = remember { nowMillis() }
     var tab by remember { mutableStateOf(0) }
     var view by remember { mutableStateOf(ReportView.Recent) }
@@ -96,9 +102,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
             "Reports",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
-            // Extra clearance when compact: the trailing corner belongs to the floating theme/Import
-            // pill on phones — the filter bar scrolls horizontally, so it must start below the pill.
-            modifier = Modifier.padding(top = Space.md, bottom = if (compact) Space.md else Space.sm),
+            modifier = Modifier.padding(top = Space.md, bottom = Space.sm),
         )
         DateRangeBar(fromDate, toDate, now) { f, t -> fromDate = f; toDate = t }
         // Top-level switcher as a Chrome-style tab sheet: the active head opens into the outlined
@@ -107,7 +111,9 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
         // a segmented control — a step down the hierarchy.
         TabSheet(tabs, tab, onSelect = { tab = it }, modifier = Modifier.fillMaxSize().padding(bottom = Space.md)) {
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Space.md),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(start = Space.md, end = Space.md, top = Space.md)
+                .padding(bottom = if (compact) FAB_CLEARANCE else Space.md),
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             when (tab) {
@@ -228,7 +234,7 @@ private fun FieldSkin(active: Boolean, onClick: () -> Unit, content: @Composable
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, if (active) MaterialTheme.colorScheme.primary else LocalTradeColors.current.sheen, shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = Space.md, vertical = Space.sm),
+            .padding(horizontal = Space.md, vertical = tapPadV()), // 48dp touch target on phones
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.xs),
         content = content,
@@ -373,9 +379,12 @@ private fun LineCard(title: String, series: List<Float>, dates: List<String>, li
 // Detailed tab: a stats grid + category breakdowns (the mock's "Detailed" report)
 // ---------------------------------------------------------------------------------------------
 
+// Four categories, every one of which plots real data. "Market Behavior" and "Liquidity" used to sit
+// here and resolve to nothing but a "needs a market-data source" card — two of six segments that were
+// dead ends, on a control that scrolls at 411dp. Add them back alongside the feed that feeds them.
 private enum class DetailCat(val label: String) {
     DaysTimes("Days/Times"), PriceVolume("Price/Volume"), Instrument("Instrument"),
-    MarketBehavior("Market Behavior"), WinLoss("Win/Loss/Expectation"), Liquidity("Liquidity"),
+    WinLoss("Win/Loss/Expectation"),
 }
 
 @Composable
@@ -391,7 +400,6 @@ private fun DetailedView(trades: List<TradeEntity>, executions: List<ExecutionEn
         DetailCat.PriceVolume -> PriceVolumeSection(trades, { priceById[it] }, { qtyById[it] })
         DetailCat.Instrument -> InstrumentSection(trades, { qtyById[it] })
         DetailCat.WinLoss -> WinLossExpectationSection(trades, win)
-        else -> DeferredNote(cat.label) // Market Behavior / Liquidity — need a market-data source
     }
 }
 
@@ -405,7 +413,6 @@ private fun InstrumentSection(trades: List<TradeEntity>, qtyById: (Long) -> BigD
             { HBarChartCard("Performance by Symbol – Bottom 20", remember(trades) { pnlBySymbolBottom(trades) }, performance = true, modifier = it) },
         )
         BreakdownPair("Distribution by Volume Traded", "Performance by Volume Traded", remember(trades) { pnlByVolumeTraded(trades, qtyById) })
-        DeferredNote("Relative Volume · ATR · Entry vs SMA · Opening Gap · Day Type · Movement")
     }
 }
 
@@ -420,14 +427,53 @@ private data class Stat(val label: String, val value: String, val color: Color)
 
 /**
  * Every summary metric for a set of trades (+ their executions), colors resolved. Shared by the
- * Detailed 3-column grid and the Win-vs-Loss two-column split. Metrics that need a market-data
- * source or heavy regression stats (per-share, MAE/MFE, K-ratio, prob. of random chance) show "—".
+ * Detailed 3-column grid and the Win-vs-Loss two-column split.
+ *
+ * Every row here computes. Metrics needing a market-data source or heavy regression stats
+ * (per-share, MAE/MFE, K-ratio, prob. of random chance) used to ship as permanent "—" rows — six
+ * lines telling the one person who already knows what he hasn't built. They return with their feed.
+ * "—" still appears, but only where a real metric is undefined for *this* set of trades (no trades
+ * yet, stddev of one sample) — an answer, not a placeholder.
  */
 @Composable
 private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity>): List<Stat> {
+    // remember: the block below is ~15 full passes over the trade list (win rate, best/worst,
+    // averages, streaks, profit factor, volume, trading days, stddev, SQN, Kelly, avg daily, three
+    // hold times, fees). It had no remember at all, so it re-ran on EVERY recomposition — not just
+    // when the data changed — and the Win-vs-Loss tab calls it twice (one column per cohort), so a
+    // scroll cost ~30 passes over the entire history. Keyed on list identity: Room hands us a new
+    // list only when the tables actually change.
+    val rows = remember(trades, executions) { statRows(trades, executions) }
     val tc = LocalTradeColors.current
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val plain = MaterialTheme.colorScheme.onSurface
+    // Color resolves here, not in the computation — DESIGN.md's Color-At-Call-Site rule. The pure
+    // half names a Tone; only this half knows what Tone means in the current theme.
+    return rows.map { r ->
+        Stat(
+            r.label,
+            r.value,
+            when (r.tone) {
+                Tone.Gain -> tc.gain
+                Tone.Loss -> tc.loss
+                Tone.Plain -> plain
+                Tone.Signed -> pnlColor(r.signed!!)
+            },
+        )
+    }
+}
+
+/** How a stat's figure is colored. The value, not the theme — resolved by [statList] at the call site. */
+private enum class Tone { Gain, Loss, Plain, Signed }
+
+/** A computed stat before the theme is applied. [signed] carries the figure [Tone.Signed] colors by. */
+private data class StatRow(val label: String, val value: String, val tone: Tone, val signed: BigDecimal? = null)
+
+/**
+ * The arithmetic half of [statList] — pure, no composables, no colors, so it can be remembered and
+ * kept off the recomposition path. Every metric here is one or more passes over the trade list; this
+ * is the expensive part of the Detailed and Win-vs-Loss tabs.
+ */
+private fun statRows(trades: List<TradeEntity>, executions: List<ExecutionEntity>): List<StatRow> {
     val na = "—"
 
     val win = CalculateWinRate()(trades)
@@ -449,47 +495,38 @@ private fun statList(trades: List<TradeEntity>, executions: List<ExecutionEntity
     fun count(n: Int) = if (totalTrades == 0) "$n" else "$n (${(n * 1000.0 / totalTrades).roundToInt() / 10.0}%)"
 
     return listOf(
-        Stat("Total Gain/Loss", formatMoney(win.totalPnl), pnlColor(win.totalPnl)),
-        Stat("Largest Gain", formatMoney(bw.largestGain), tc.gain),
-        Stat("Largest Loss", formatMoney(bw.largestLoss), tc.loss),
-        Stat("Average Daily Gain/Loss", formatMoney(adp), pnlColor(adp)),
-        Stat("Average Daily Volume", if (days > 0) (vol.toFloat() / days).toLong().toString() else "0", plain),
-        Stat("Average Per-Share Gain/Loss", na, muted),
-        Stat("Average Trade Gain/Loss", formatMoney(avg.perTrade), pnlColor(avg.perTrade)),
-        Stat("Average Winning Trade", formatMoney(avg.perWinner), tc.gain),
-        Stat("Average Losing Trade", formatMoney(avg.perLoser), tc.loss),
-        Stat("Total Number of Trades", totalTrades.toString(), plain),
-        Stat("Number of Winning Trades", count(win.wins), tc.gain),
-        Stat("Number of Losing Trades", count(win.losses), tc.loss),
-        Stat("Average Hold Time (scratch trades)", dur(avgHoldScratch(trades)), plain),
-        Stat("Average Hold Time (winning trades)", dur(avgHoldMillis(trades, true)), plain),
-        Stat("Average Hold Time (losing trades)", dur(avgHoldMillis(trades, false)), plain),
-        Stat("Number of Scratch Trades", count(win.breakeven), plain),
-        Stat("Max Consecutive Wins", streaks.maxWins.toString(), tc.gain),
-        Stat("Max Consecutive Losses", streaks.maxLosses.toString(), tc.loss),
-        Stat("Trade P&L Standard Deviation", sd?.let { "$CURRENCY${d2(it)}" } ?: na, plain),
-        Stat("System Quality Number (SQN)", sqnV?.let { d2(it) } ?: na, plain),
-        Stat("Probability of Random Chance", na, muted),
-        Stat("Kelly Percentage", kellyV?.let { if (it < 0) "< 0%" else "${(it * 100).toInt()}%" } ?: na, plain),
-        Stat("K-Ratio", na, muted),
-        Stat("Profit Factor", pf?.let { d2(it) } ?: "∞", plain),
-        Stat("Total Commissions", formatMoney(ZERO), plain),
+        StatRow("Total Gain/Loss", formatMoney(win.totalPnl), Tone.Signed, win.totalPnl),
+        StatRow("Largest Gain", formatMoney(bw.largestGain), Tone.Gain),
+        StatRow("Largest Loss", formatMoney(bw.largestLoss), Tone.Loss),
+        StatRow("Average Daily Gain/Loss", formatMoney(adp), Tone.Signed, adp),
+        StatRow("Average Daily Volume", if (days > 0) (vol.toFloat() / days).toLong().toString() else "0", Tone.Plain),
+        StatRow("Average Trade Gain/Loss", formatMoney(avg.perTrade), Tone.Signed, avg.perTrade),
+        StatRow("Average Winning Trade", formatMoney(avg.perWinner), Tone.Gain),
+        StatRow("Average Losing Trade", formatMoney(avg.perLoser), Tone.Loss),
+        StatRow("Total Number of Trades", totalTrades.toString(), Tone.Plain),
+        StatRow("Number of Winning Trades", count(win.wins), Tone.Gain),
+        StatRow("Number of Losing Trades", count(win.losses), Tone.Loss),
+        StatRow("Average Hold Time (scratch trades)", dur(avgHoldScratch(trades)), Tone.Plain),
+        StatRow("Average Hold Time (winning trades)", dur(avgHoldMillis(trades, true)), Tone.Plain),
+        StatRow("Average Hold Time (losing trades)", dur(avgHoldMillis(trades, false)), Tone.Plain),
+        StatRow("Number of Scratch Trades", count(win.breakeven), Tone.Plain),
+        StatRow("Max Consecutive Wins", streaks.maxWins.toString(), Tone.Gain),
+        StatRow("Max Consecutive Losses", streaks.maxLosses.toString(), Tone.Loss),
+        StatRow("Trade P&L Standard Deviation", sd?.let { "$CURRENCY${d2(it)}" } ?: na, Tone.Plain),
+        StatRow("System Quality Number (SQN)", sqnV?.let { d2(it) } ?: na, Tone.Plain),
+        StatRow("Kelly Percentage", kellyV?.let { if (it < 0) "< 0%" else "${(it * 100).toInt()}%" } ?: na, Tone.Plain),
+        StatRow("Profit Factor", pf?.let { d2(it) } ?: "∞", Tone.Plain),
+        StatRow("Total Commissions", formatMoney(ZERO), Tone.Plain),
         // Signed cost (−$…), matching the Dashboard's fees figure — "+$144" fees would read as a gain.
-        Stat("Total Fees", formatMoney(ZERO.subtract(totalFees(executions))), plain),
-        Stat("", "", plain),
-        Stat("Average Position MAE", na, muted),
-        Stat("Average Position MFE", na, muted),
-        Stat("", "", plain),
+        StatRow("Total Fees", formatMoney(ZERO.subtract(totalFees(executions))), Tone.Plain),
     )
 }
 
 /** The mock's big Stats table: a 3-column grid of summary metrics with hairline row separators. */
 @Composable
 private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntity>) {
-    // Blank Stat("", "") entries pad the multi-column grid into even rows; in a single column
-    // they'd render as dead rows with stray dividers, so drop them there.
     val cols = if (LocalCompact.current) 1 else 3 // ponytail: 3-up crushes long labels on a phone
-    val stats = statList(trades, executions).let { if (cols == 1) it.filter { s -> s.label.isNotEmpty() } else it }
+    val stats = statList(trades, executions)
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text("Stats", style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
@@ -513,7 +550,7 @@ private fun StatColumn(title: String, dot: Color, trades: List<TradeEntity>, exe
                 Box(Modifier.size(8.dp).background(dot, RoundedCornerShape(2.dp)))
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
-            statList(trades, executions).filter { it.label.isNotEmpty() }.forEachIndexed { i, s ->
+            statList(trades, executions).forEachIndexed { i, s ->
                 if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs)) {
                     Text("${s.label}:", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
@@ -554,7 +591,6 @@ private fun PriceVolumeSection(trades: List<TradeEntity>, priceById: (Long) -> B
     Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
         BreakdownPair("Trade Distribution by Price", "Performance by Price", remember(trades) { pnlByPrice(trades, priceById) })
         BreakdownPair("Distribution by Volume Traded", "Performance by Volume Traded", remember(trades) { pnlByVolumeTraded(trades, qtyById) })
-        DeferredNote("In-Trade Price Range")
     }
 }
 
@@ -628,14 +664,6 @@ private fun CountRow(label: String, count: Int, max: Int) {
     }
 }
 
-/** A card standing in for a market-data-dependent report we can't compute yet (deferred in CLAUDE.md). */
-@Composable
-private fun DeferredNote(title: String, modifier: Modifier = Modifier) {
-    SectionCard(title, modifier) {
-        Text("Needs a market-data source — deferred in v1 (see CLAUDE.md).", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Win vs Loss Days tab: trades split into winning-day vs losing-day cohorts
 // ---------------------------------------------------------------------------------------------
@@ -681,7 +709,7 @@ private fun WinLossDaysView(trades: List<TradeEntity>, executions: List<Executio
             }
             DetailCat.DaysTimes -> DaysTimesSection(trades, byHour)
             DetailCat.PriceVolume -> PriceVolumeSection(trades, { priceById[it] }, { qtyById[it] })
-            else -> DeferredNote(cat.label)
+            DetailCat.Instrument -> InstrumentSection(trades, { qtyById[it] })
         }
     }
 }

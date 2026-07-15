@@ -23,11 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tradingtail.common.CURRENCY
 import com.tradingtail.data.imports.ParsedFill
 import com.tradingtail.data.local.entity.Side
-import com.tradingtail.ui.theme.LocalTradeColors
+import com.tradingtail.domain.usecase.ImportPreview
+import com.tradingtail.ui.theme.Space
 
 /**
  * Preview of the fills parsed from a statement PDF, shown before anything is written. The user confirms
@@ -35,14 +37,16 @@ import com.tradingtail.ui.theme.LocalTradeColors
  */
 @Composable
 fun ImportPreviewContent(
-    fills: List<ParsedFill>,
+    preview: ImportPreview,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
+    val fills = preview.fills
     Column(
-        modifier = modifier.fillMaxWidth().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = modifier.fillMaxWidth().padding(Space.lg),
+        verticalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -53,29 +57,41 @@ fun ImportPreviewContent(
             IconButton(onClick = onCancel) { Icon(Icons.Filled.Close, contentDescription = "Cancel") }
         }
 
-        val symbols = fills.map { it.symbol }.distinct().size
+        // State the write before making it. The duplicate count is the fact most likely to change the
+        // decision, and it used to appear only in the snackbar *after* the (irreversible, un-undoable)
+        // commit — the gate asked for confirmation while withholding the reason to withhold it.
         Text(
-            if (fills.isEmpty()) "No trades found in this PDF." else "${fills.size} fills · $symbols symbols",
+            when {
+                fills.isEmpty() -> "No trades found in this PDF."
+                preview.duplicates == 0 -> "${fills.size} fills · ${preview.symbols} symbols · all new"
+                preview.fresh == 0 -> "${fills.size} fills · already imported, nothing new to add"
+                else -> "${fills.size} fills · ${preview.symbols} symbols · ${preview.fresh} new, " +
+                    "${preview.duplicates} already imported"
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         if (fills.isNotEmpty()) {
-            HeaderRow()
+            if (!compact) HeaderRow() // no columns to head once the row stacks
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()).weight(1f, fill = false),
             ) {
-                fills.forEach { FillRow(it) }
+                fills.forEach { if (compact) FillRowCompact(it) else FillRow(it) }
             }
         }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm, Alignment.End),
         ) {
             TextButton(onClick = onCancel) { Text("Cancel") }
-            Button(onClick = onConfirm, enabled = fills.isNotEmpty()) { Text("Import ${fills.size}") }
+            // Names what will actually be written, not what was parsed: re-importing last month's
+            // statement should read "Nothing new to import", not offer to import 47 fills again.
+            Button(onClick = onConfirm, enabled = preview.fresh > 0) {
+                Text(if (preview.fresh == 0) "Nothing new to import" else "Import ${preview.fresh}")
+            }
         }
     }
 }
@@ -99,22 +115,53 @@ private fun HeaderRow() {
     }
 }
 
+/**
+ * Phone-width fill. The six-column table needs ~158dp of fixed columns and gaps before the numbers
+ * get a pixel, which leaves each weighted column ~30dp at 360dp — a "$123.45" soft-wraps mid-number
+ * there. Same fields, stacked into two lines instead: identity + price, then the rest as a caption.
+ */
+@Composable
+private fun FillRowCompact(f: ParsedFill) {
+    val mono = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            // weight on the symbol so a long option symbol truncates instead of squeezing the price.
+            Text(
+                f.symbol,
+                style = mono.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            SideLabel(f.side, Modifier.padding(horizontal = Space.sm))
+            Text("$CURRENCY${f.price}", style = mono, textAlign = TextAlign.End, maxLines = 1)
+        }
+        Text(
+            // "100 · 07-15 09:30 · $0.50 fees" — everything the wide table's remaining columns carry.
+            "${f.quantity} · ${f.bangkokDateTime.substring(5).dropLast(3)} · $CURRENCY${f.fees} fees",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+    }
+}
+
 @Composable
 private fun FillRow(f: ParsedFill) {
-    val tc = LocalTradeColors.current
     val mono = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = Space.xs),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(f.symbol, style = mono.copy(fontWeight = FontWeight.SemiBold), modifier = Modifier.width(64.dp))
         Text(
-            f.side.name,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (f.side == Side.BUY) tc.gain else tc.loss,
-            modifier = Modifier.width(44.dp),
+            f.symbol,
+            style = mono.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(64.dp),
         )
+        SideLabel(f.side, Modifier.width(44.dp))
         Text("${f.quantity}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text("$CURRENCY${f.price}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text("$CURRENCY${f.fees}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
@@ -125,4 +172,24 @@ private fun FillRow(f: ParsedFill) {
             modifier = Modifier.weight(1.4f),
         )
     }
+}
+
+/**
+ * BUY/SELL as neutral chrome. This wore the P&L pair until 2026-07-16 — BUY in Gain Green, SELL in
+ * Loss Red — which broke the system's own law (DESIGN.md §2: green/red is data, "applied to monetary
+ * figures only") on the one screen where it matters most. A sell is not a loss; a routine statement
+ * rendered as a wall of red on the app's only irreversible bulk write, right where the user is being
+ * asked to trust it. The side is a fact about direction, and the mono figures beside it already carry
+ * every semantic that matters.
+ */
+@Composable
+private fun SideLabel(side: Side, modifier: Modifier = Modifier) {
+    Text(
+        if (side == Side.BUY) "BUY" else "SELL",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        modifier = modifier,
+    )
 }

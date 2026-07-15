@@ -23,7 +23,13 @@ data class ExecutionEntity(
     val source: ExecutionSource,
 )
 
-/** A derived, closed round-trip (flat -> position -> flat). Produced by BuildTradesFromExecutions. */
+/**
+ * A derived, closed round-trip (flat -> position -> flat). Produced by BuildTradesFromExecutions.
+ *
+ * Rows here are disposable: RebuildTradesForSymbol truncates the symbol and re-derives from fills, so
+ * `id` is NOT stable across rebuilds and nothing durable may hang off it. User-authored data keys off
+ * [naturalKey] and lives in its own table (see [TradeNoteEntity]).
+ */
 @Entity(tableName = "trades")
 data class TradeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -34,7 +40,28 @@ data class TradeEntity(
     val realizedPnl: BigDecimal,
     val entryTimestamp: Long,
     val exitTimestamp: Long,
-    val notes: String? = null,
+)
+
+/**
+ * The stable identity of a round-trip across rebuilds. A trade's row id churns every time the matcher
+ * re-derives the symbol, but the same fills always produce the same symbol + open/close instants.
+ */
+data class TradeKey(val symbol: String, val entryTs: Long, val exitTs: Long)
+
+val TradeEntity.naturalKey: TradeKey get() = TradeKey(symbol, entryTimestamp, exitTimestamp)
+
+/**
+ * A note the trader wrote about a round-trip. Keyed by [TradeKey], not by `trades.id` — notes used to
+ * live on TradeEntity, where every rebuild silently destroyed them (the table is truncated per symbol
+ * on each new fill and each import). This table is never touched by the matcher, so a note outlives
+ * every re-derivation. A note whose trade no longer exists is a harmless orphan, not a crash.
+ */
+@Entity(tableName = "trade_notes", primaryKeys = ["symbol", "entryTs", "exitTs"])
+data class TradeNoteEntity(
+    val symbol: String,
+    val entryTs: Long,
+    val exitTs: Long,
+    val note: String,
 )
 
 @Entity(tableName = "tags")

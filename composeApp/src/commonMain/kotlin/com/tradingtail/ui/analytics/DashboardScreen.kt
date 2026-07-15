@@ -1,12 +1,9 @@
 package com.tradingtail.ui.analytics
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -15,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,15 +34,20 @@ import com.tradingtail.common.formatMoney
 import com.tradingtail.common.nowMillis
 import com.tradingtail.domain.usecase.CalculatePnlByHour
 import com.tradingtail.domain.usecase.CalculateWinRate
+import com.tradingtail.ui.theme.FAB_CLEARANCE
 import com.tradingtail.ui.theme.LocalTradeColors
-import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 
 /**
- * At-a-glance dashboard: the same widgets as Reports, but filtered to a recent window (30/60/90 days)
- * — Reports stays the full-history deep dive. Reuses the injected usecases so win-rate/hour aggregation
- * matches the rest of the app exactly (no re-implemented counting).
+ * At-a-glance dashboard over a recent window (30/60/90 days) — Reports stays the full-history deep
+ * dive. Reuses the injected usecases so win-rate/hour aggregation matches the rest of the app exactly
+ * (no re-implemented counting).
+ *
+ * The two layouts answer different questions on purpose. Wide is the bento grid: the recent window
+ * rendered at Reports' depth, because a 1440dp window can hold it. Compact answers only "how am I
+ * doing right now" — week strip, equity curve, outcome pair, dense figures — and hands every
+ * breakdown off to Reports rather than restating it in a second 18-card column.
  */
 // Widget height unit "X" = a Performance-By card's height, sized so 8 bucket rows + title + pager
 // fill it with no dead glass (~392dp of content). Every wide band is a Row exactly X tall.
@@ -54,8 +55,13 @@ private val WIDGET_UNIT = 420.dp
 
 @Composable
 fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
-    val trades by vm.trades.collectAsState(initial = emptyList())
-    val executions by vm.executions.collectAsState(initial = emptyList())
+    // initial = null, not empty: "no data yet" and "haven't asked the database yet" are different
+    // facts. Conflating them made cold start render $0.00 across the board before Room's first
+    // emission — a figure the user could read and believe. Nothing renders during the gap.
+    val tradesOrNull by vm.trades.collectAsState(initial = null)
+    val executionsOrNull by vm.executions.collectAsState(initial = null)
+    val trades = tradesOrNull ?: return
+    val executions = executionsOrNull ?: return
     val now = remember { nowMillis() }
     var period by remember { mutableStateOf(30) }
     val cutoff = now - period * DAY_MS
@@ -65,11 +71,15 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
     // Entry-price lookup spans all fills — a trade's entry may predate the window even if its exit is inside.
     val priceById = remember(executions) { executions.associate { it.id to it.price } }
 
-    val win = remember { CalculateWinRate() }(filtered)
-    val byHour = remember { CalculatePnlByHour() }(filtered)
-    val streaks = maxStreaks(filtered)
-    val pf = profitFactor(filtered)
-    val fees = ZERO.subtract(totalFees(execWindow)) // shown as a signed cost
+    // Each of these is a full pass over the window, so they're keyed on the data, not left bare.
+    // `remember { CalculateWinRate() }(filtered)` — the previous shape — cached the *usecase object*
+    // (which is stateless and free to construct) and re-ran the pass it wraps on every recomposition.
+    // It read like caching while caching the one thing that didn't cost anything.
+    val win = remember(filtered) { CalculateWinRate()(filtered) }
+    val byHour = remember(filtered) { CalculatePnlByHour()(filtered) }
+    val streaks = remember(filtered) { maxStreaks(filtered) }
+    val pf = remember(filtered) { profitFactor(filtered) }
+    val fees = remember(execWindow) { ZERO.subtract(totalFees(execWindow)) } // shown as a signed cost
     val totalTrades = win.wins + win.losses + win.breakeven
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -78,8 +88,9 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
         CompositionLocalProvider(LocalCompact provides compact) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = Space.md)) {
         if (compact) {
-            // Stacked header: the trailing corner belongs to the floating theme/Import pill on
-            // phones — a trailing toggle would sit underneath it.
+            // Stacked header — the period toggle needs the full width on a phone, and a trailing toggle
+            // beside the title would crush both. (It also used to dodge the floating pill, which now
+            // lives bottom-left.)
             Column(modifier = Modifier.fillMaxWidth().padding(top = Space.md, bottom = Space.sm)) {
                 Text("Dashboard", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(Space.sm))
@@ -97,7 +108,8 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
         }
 
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = Space.xs),
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(top = Space.xs, bottom = if (compact) FAB_CLEARANCE else Space.xs),
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             // Section map: day strip → equity + outcome pairs → chart-and-bucket bands →
@@ -131,42 +143,55 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
                     { BestWorstCard(remember(filtered) { bestWorst(filtered) }, fill) },
                 )
             }
-            Band(compact) {
-                BarChartCard("Win %", remember(filtered) { winRateByDay(filtered) }, diverging = false, barColor = tc.gain, modifier = two, fillHeight = fh)
-                BucketSection("Performance By Day Of Week", remember(filtered) { pnlByDayOfWeek(filtered) }, one, paged = pg)
-                BucketSection("Performance By Price", remember(filtered, priceById) { pnlByPrice(filtered) { priceById[it] } }, one, paged = pg)
-            }
-            Band(compact) {
-                DrawdownCard(remember(filtered) { drawdownSeries(filtered) }, dates, remember(filtered) { maxDrawdown(filtered) }, two, fillHeight = fh)
-                BucketSection("Performance By Hour Of Day", remember(byHour) { hourWindow(byHour) }, one, paged = pg)
-                BucketSection("Performance By Month Of Year", remember(filtered) { pnlByMonth(filtered) }, one, paged = pg)
-            }
-            Band(compact) {
-                BarChartCard("Daily Volume", remember(execWindow) { volumeByDay(execWindow) }, diverging = false, barColor = MaterialTheme.colorScheme.primary, modifier = two, fillHeight = fh)
-                BucketSection("Performance By Duration", remember(filtered) { pnlByDuration(filtered) }, one, paged = pg)
-                PairCell(
-                    compact, one,
-                    { StatsCard(streaks.maxWins, streaks.maxLosses, totalTrades, avgDaily, fees, fill) },
-                    {
-                        GaugeCard(
-                            "Profit Factor", pfText, pfFrac,
-                            fg = if (pf == null || pf >= 1.0) MaterialTheme.colorScheme.primary else tc.loss,
-                            track = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = gaugeMod,
-                        )
-                    },
+
+            if (compact) {
+                // The phone dashboard stops at the at-a-glance set + the dense figures. Every
+                // breakdown the wide grid shows below (day/hour/month/duration/price, win%, volume,
+                // drawdown) is already plotted over the same trades by Reports → Detailed, so
+                // stacking them here only bought 18 sibling cards on a 411dp screen saying what
+                // Reports already says. Redundancy cut, not information: nothing here is unreachable.
+                StatsCard(streaks.maxWins, streaks.maxLosses, totalTrades, avgDaily, fees, Modifier.fillMaxWidth())
+                GaugeCard(
+                    "Profit Factor", pfText, pfFrac,
+                    fg = if (pf == null || pf >= 1.0) MaterialTheme.colorScheme.primary else tc.loss,
+                    track = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = gaugeMod,
                 )
-            }
-            Band(compact) {
-                BarChartCard("Average Trade P&L", remember(filtered) { avgPnlByDay(filtered) }, diverging = true, barColor = tc.gain, modifier = two, fillHeight = fh)
-                // The band's right half stays open ground — the page tapers out instead of padding
-                // itself with more frames.
-                if (!compact) {
+            } else {
+                Band(compact) {
+                    BarChartCard("Win %", remember(filtered) { winRateByDay(filtered) }, diverging = false, barColor = tc.gain, modifier = two, fillHeight = fh)
+                    BucketSection("Performance By Day Of Week", remember(filtered) { pnlByDayOfWeek(filtered) }, one, paged = pg)
+                    BucketSection("Performance By Price", remember(filtered, priceById) { pnlByPrice(filtered) { priceById[it] } }, one, paged = pg)
+                }
+                Band(compact) {
+                    DrawdownCard(remember(filtered) { drawdownSeries(filtered) }, dates, remember(filtered) { maxDrawdown(filtered) }, two, fillHeight = fh)
+                    BucketSection("Performance By Hour Of Day", remember(byHour) { hourWindow(byHour) }, one, paged = pg)
+                    BucketSection("Performance By Month Of Year", remember(filtered) { pnlByMonth(filtered) }, one, paged = pg)
+                }
+                Band(compact) {
+                    BarChartCard("Daily Volume", remember(execWindow) { volumeByDay(execWindow) }, diverging = false, barColor = MaterialTheme.colorScheme.primary, modifier = two, fillHeight = fh)
+                    BucketSection("Performance By Duration", remember(filtered) { pnlByDuration(filtered) }, one, paged = pg)
+                    PairCell(
+                        compact, one,
+                        { StatsCard(streaks.maxWins, streaks.maxLosses, totalTrades, avgDaily, fees, fill) },
+                        {
+                            GaugeCard(
+                                "Profit Factor", pfText, pfFrac,
+                                fg = if (pf == null || pf >= 1.0) MaterialTheme.colorScheme.primary else tc.loss,
+                                track = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = gaugeMod,
+                            )
+                        },
+                    )
+                }
+                Band(compact) {
+                    BarChartCard("Average Trade P&L", remember(filtered) { avgPnlByDay(filtered) }, diverging = true, barColor = tc.gain, modifier = two, fillHeight = fh)
+                    // The band's right half stays open ground — the page tapers out instead of padding
+                    // itself with more frames.
                     Spacer(Modifier.weight(1f))
                     Spacer(Modifier.weight(1f))
                 }
             }
-            PendingWidgetsCard()
         }
         }
         }
@@ -228,39 +253,5 @@ private fun StatRow(label: String, value: String, valueColor: Color = Color.Unsp
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.bodyMedium,
         )
-    }
-}
-
-/**
- * The mock's market-data widgets, demoted from ten empty frames to one quiet strip — they stay
- * visible on purpose (they're the roadmap; see CLAUDE.md's deferred price-feed decision), but as
- * names, not dead glass. Reinstate a real card per widget as feeds land.
- */
-private val PENDING_WIDGETS = listOf(
-    "Average MFE vs MAE", "Average Position MAE", "Average Position MFE",
-    "Performance By Instrument Opening Gap", "Performance By Instrument Day Type",
-    "Performance By Instrument Volume", "Performance By Symbol Atr", "Performance By Rvol",
-    "Performance By Instrument Movement", "Tag Breakdown",
-)
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PendingWidgetsCard() {
-    SectionCard("Awaiting market data") {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(Space.sm),
-            verticalArrangement = Arrangement.spacedBy(Space.sm),
-        ) {
-            for (title in PENDING_WIDGETS) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(Radii.pill))
-                        .padding(horizontal = Space.md, vertical = Space.xs),
-                )
-            }
-        }
     }
 }

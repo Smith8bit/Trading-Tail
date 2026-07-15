@@ -19,6 +19,18 @@ object Space {
 }
 
 /**
+ * Bottom room every compact scrolling screen must reserve: the FAB (56dp) + its 16dp margin + a 12dp
+ * breath, and enough for the Import pill mirroring it on the left.
+ *
+ * Scaffold's `innerPadding` covers the top and bottom bars but NEVER the floating action button, so
+ * without this the FAB sits on the last row — measured on a Pixel 9 covering 44% of a `+$850.00`.
+ * Applied as `contentPadding`, not `padding`, so rows still scroll *under* the floating chrome
+ * instead of stopping short of it. One constant because four screens need the identical number and
+ * three of them had drifted.
+ */
+val FAB_CLEARANCE = 84.dp
+
+/**
  * Corner radii — the "Modern Terminal" scale (sm 8 / md 10 / lg 14 / xl 18 + pill), softer/larger than
  * the old 4/8/12/16 to suit the bento + immersive direction. [AppShapes] feeds these to M3 components
  * (Card, TextField, Sheet) so the whole surface rounds from one place; buttons stay [pill].

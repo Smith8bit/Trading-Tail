@@ -2,6 +2,7 @@ package com.tradingtail
 
 import com.tradingtail.data.local.TradeDatabase
 import com.tradingtail.data.repository.ExecutionRepository
+import com.tradingtail.data.repository.TradeNoteRepository
 import com.tradingtail.data.repository.TradeRepository
 import com.tradingtail.domain.usecase.BuildTradesFromExecutions
 import com.tradingtail.domain.usecase.CalculateCalendarPnl
@@ -12,6 +13,7 @@ import com.tradingtail.domain.usecase.DeleteTrade
 import com.tradingtail.domain.usecase.ImportWebullPdf
 import com.tradingtail.domain.usecase.RebuildTradesForSymbol
 import com.tradingtail.domain.usecase.RecordQuickTrade
+import com.tradingtail.domain.usecase.UpdateExecution
 
 /**
  * ponytail: hand-wired object graph — one class, no DI framework. Each platform builds the live
@@ -21,11 +23,13 @@ import com.tradingtail.domain.usecase.RecordQuickTrade
 class AppModule(db: TradeDatabase) {
     val executionRepo = ExecutionRepository(db.executionDao())
     val tradeRepo = TradeRepository(db.tradeDao())
+    val tradeNoteRepo = TradeNoteRepository(db.tradeNoteDao())
 
     private val rebuild = RebuildTradesForSymbol(executionRepo, tradeRepo, BuildTradesFromExecutions())
     val recordQuickTrade = RecordQuickTrade(executionRepo, rebuild)
     val importWebullPdf = ImportWebullPdf(executionRepo, rebuild)
     val deleteTrade = DeleteTrade(executionRepo, rebuild)
+    val updateExecution = UpdateExecution(executionRepo, rebuild)
     val calculateCalendarPnl = CalculateCalendarPnl()
     val calculateWinRate = CalculateWinRate()
     val calculatePnlBySymbol = CalculatePnlBySymbol()

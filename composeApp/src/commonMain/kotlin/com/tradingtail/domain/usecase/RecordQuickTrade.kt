@@ -29,6 +29,14 @@ class RecordQuickTrade(
         exitFees: BigDecimal = ZERO,
         instrumentType: InstrumentType = InstrumentType.STOCK,
     ) {
+        // The one check no per-execution validator can make: each leg is individually valid and the
+        // pair is still impossible. Enforced here rather than in the form because this is the gate
+        // every manual path routes through — a UI-only check would leave the usecase accepting an
+        // exit-before-entry round-trip and handing it to the FIFO matcher, which sorts by timestamp
+        // and would silently match the "exit" as the opening leg.
+        require(exitTimestamp >= entryTimestamp) {
+            "exit time must be at or after entry time"
+        }
         val (entrySide, exitSide) = when (direction) {
             Direction.LONG -> Side.BUY to Side.SELL
             Direction.SHORT -> Side.SELL to Side.BUY
