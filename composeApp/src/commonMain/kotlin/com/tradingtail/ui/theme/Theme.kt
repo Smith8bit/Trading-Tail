@@ -52,7 +52,11 @@ private val DarkColors = darkColorScheme(
     surface = Color(0xFF10151F),
     onSurface = Color(0xFFE9EEF5),
 
-    surfaceVariant = Color(0xFF1A2230),
+    // The recessed-fill role: segmented-control tracks, idle tab heads, idle chips, gauge/meter
+    // tracks. Was #1A2230, only 1.23:1 against the canvas — an idle option you had to hunt for.
+    // #212B3C reads at 1.38:1 and still carries onSurfaceVariant at 4.80:1. See the note on the
+    // light scheme's twin: fill alone can't carry *selected*, the accent border does that.
+    surfaceVariant = Color(0xFF212B3C),
     onSurfaceVariant = Color(0xFF8A97A9),
     surfaceTint = Color(0xFF005FFF),
 
@@ -108,8 +112,19 @@ private val LightColors = lightColorScheme(
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF121822),
 
-    surfaceVariant = Color(0xFFE9EEF4),
-    onSurfaceVariant = Color(0xFF586576),
+    // The recessed-fill role: segmented-control tracks, idle tab heads, idle chips, gauge/meter
+    // tracks. Was #E9EEF4 — 1.03:1 against the #EEF1F6 canvas, i.e. the same colour. Every idle
+    // option in the app (30/60/90, the month picker, the unselected report tabs) was a ghost.
+    //
+    // #C9D5E5 is as deep as this can go while onSurfaceVariant still clears 4.5:1 on it (4.95:1),
+    // and it only buys 1.31:1 — because on a light ground **fill lightness cannot carry state**:
+    // white-on-track tops out near 1.5:1 no matter what. So the fill's job is only to make an idle
+    // option *visible*; **the primary border on the selected one carries which is on** (#005FFF is
+    // 3.5:1 vs this fill, clearing WCAG 1.4.11's 3:1 for state). Don't chase state via fill here.
+    surfaceVariant = Color(0xFFC9D5E5),
+    // Darkened with the fill above (was #586576, which fell to 3.99:1 on it — below the 4.5 floor).
+    // #4A5768 holds 4.95:1 there and improves every other muted-text site too (5.94 → 7.20:1 on white).
+    onSurfaceVariant = Color(0xFF4A5768),
     surfaceTint = Color(0xFF005FFF),
 
     // Menus and dialogs stay white/near-white here — they're paper on the pale canvas.

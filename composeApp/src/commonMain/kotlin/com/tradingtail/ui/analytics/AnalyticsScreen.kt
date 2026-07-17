@@ -96,14 +96,16 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         // ponytail: one breakpoint — <600dp (phones) stacks every 2-up and scrolls overflowing bars.
         val compact = maxWidth < 600.dp
-        // The sheet's heads must fit one row (the outline traces the active head, so they can't wrap),
-        // and at full length they measured ~1060px against a 411dp phone's 1017 — "Drawdown" lost its
-        // last letter. "Win vs Loss Days" is the outlier at ~2x its siblings; contracting just that one
-        // on compact buys back enough for all four. It still says days, which is what the report is.
+        // The sheet's heads must fit one row — the outline traces the active head, so they can't wrap.
+        // Full length measured ~1060px against a 411dp phone's 1017; "Win/Loss Days" got that to 1023,
+        // which still overflowed by 6px, so selecting Drawdown scrolled the strip and clipped Overview
+        // off the left instead. Measured twice, wrong twice: a label budget with ~0px of slack is not a
+        // fix. "Win/Loss" lands at ~900 and leaves >100px of room, so ordinary drift can't re-break it.
+        // (Unambiguous in place: the Win/Loss/Expectation *category* lives inside Detailed, not here.)
         val tabs = listOf(
             "Overview",
             "Detailed",
-            if (compact) "Win/Loss Days" else "Win vs Loss Days",
+            if (compact) "Win/Loss" else "Win vs Loss Days",
             "Drawdown",
         )
         CompositionLocalProvider(LocalCompact provides compact) {
@@ -212,23 +214,47 @@ private fun OverviewControls(
     }
 }
 
-/** The mock's day-range filter: a preset quick-pick + manual From/To fields; scopes every report tab. */
+/**
+ * The mock's day-range filter: a preset quick-pick + manual From/To fields; scopes every report tab.
+ *
+ * **Wraps, and measure it in the FILLED state.** Empty it reads "All time · From · To" and ends ~590px
+ * into a 1017px phone — which is exactly the trap: picking a day swaps the preset to the wider "Custom
+ * range", expands both placeholders into mono dates ("2026-07-05"), *and* reveals a Clear button. The
+ * bar then ran past 1080 and **Clear rendered off-screen entirely** — the one control that undoes the
+ * filter, gone the moment the filter existed. The old horizontalScroll made it reachable only by a
+ * sideways swipe with nothing to advertise it.
+ *
+ * The From–To trio is one atomic Row so a wrap can never split the pairing across lines; only the
+ * preset, the range group, and Clear are breakable.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DateRangeBar(from: BkkDate?, to: BkkDate?, now: Long, onRange: (BkkDate?, BkkDate?) -> Unit) {
     var preset by remember { mutableStateOf<RangePreset?>(null) }
-    Row(
-        // ponytail: preset + From/–/To/Clear overflow a phone's width, so scroll them when compact.
-        modifier = Modifier.fillMaxWidth()
-            .then(if (LocalCompact.current) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
-            .padding(bottom = Space.sm),
+    // ponytail: `itemVerticalAlignment` is Compose 1.8+; this is CMP 1.7.3, so each child aligns itself
+    // via FlowRowScope.align — same result, no version bump for one parameter.
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(bottom = Space.sm),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        PresetPicker(preset, hasDates = from != null || to != null) { p -> preset = p; presetRange(p, now).let { onRange(it.first, it.second) } }
-        DateField(from, "From") { preset = null; onRange(it, to) }
-        Text("–", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        DateField(to, "To") { preset = null; onRange(from, it) }
-        if (from != null || to != null) TextButton(onClick = { preset = null; onRange(null, null) }) { Text("Clear") }
+        Box(Modifier.align(Alignment.CenterVertically)) {
+            PresetPicker(preset, hasDates = from != null || to != null) { p -> preset = p; presetRange(p, now).let { onRange(it.first, it.second) } }
+        }
+        Row(
+            modifier = Modifier.align(Alignment.CenterVertically),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DateField(from, "From") { preset = null; onRange(it, to) }
+            Text("–", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            DateField(to, "To") { preset = null; onRange(from, it) }
+        }
+        if (from != null || to != null) {
+            Box(Modifier.align(Alignment.CenterVertically)) {
+                TextButton(onClick = { preset = null; onRange(null, null) }) { Text("Clear") }
+            }
+        }
     }
 }
 

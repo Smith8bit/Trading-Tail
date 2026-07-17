@@ -144,11 +144,16 @@ internal fun tapPadV(): Dp = if (LocalCompact.current) 14.dp else Space.sm
 internal fun ToggleChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val shape = RoundedCornerShape(Radii.md)
+    // The selected chip is edged in the accent, not just tinted with it. A 15%-alpha fill on a pale
+    // canvas differs from an idle chip by ~1.2:1 — the month picker read as twelve near-identical
+    // ghosts. The border is ~3.5:1 against both fills, so which month is on survives the aurora.
     Box(
-        modifier = Modifier.clip(RoundedCornerShape(Radii.md)).background(bg)
+        modifier = Modifier.clip(shape).background(bg)
+            .then(if (selected) Modifier.border(1.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
             .clickable(onClick = onClick).padding(horizontal = Space.md, vertical = tapPadV()),
     ) {
-        Text(text, color = fg, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+        Text(text, color = fg, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
     }
 }
 
@@ -302,7 +307,11 @@ internal fun SegmentedControl(items: List<String>, selected: Int, onSelect: (Int
             val seg = RoundedCornerShape(Radii.sm)
             Box(
                 modifier = Modifier.clip(seg)
-                    .then(if (isSel) Modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, tc.sheen, seg) else Modifier)
+                    // Accent edge, not the sheen hairline: a raised white pill differs from its own
+                    // track by only 1.17:1 (and the sheen from either by ~1.3:1), so on the light
+                    // theme "which period is selected" was carried by nothing but the blue label.
+                    // #005FFF against the track is 3.5:1 — the state reads at a glance now.
+                    .then(if (isSel) Modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.colorScheme.primary, seg) else Modifier)
                     .clickable { onSelect(i) }
                     .padding(horizontal = Space.md, vertical = tapPadV()),
             ) {
