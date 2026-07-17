@@ -290,6 +290,16 @@ private fun sheetOutline(head: Rect, size: Size, r: Float): Path {
  * phone with nothing to suggest it continued. Wrapping fits by construction at any label set and any
  * font scale, so there's no width to keep re-tuning. Callers must give this a bounded width — inside a
  * horizontalScroll the constraint is infinite and it would lay out as one unwrapped row again.
+ *
+ * **The track is a tile (opaque surface + sheen), not a recessed grey well.** It used to fill with
+ * surfaceVariant, which made it a hostage to whatever it happened to sit on: inside Reports' glass
+ * sheet it read as a clean well (1.29:1 on that pale backdrop), but the Dashboard has no sheet, so the
+ * same grey landed straight on the aurora's blue blob at **1.01:1 — the control dissolved into the
+ * background**. Identical colour, opposite result, which is exactly why a fill can't be trusted here:
+ * the aurora is a gradient, so no single value separates from it everywhere. An opaque tile plus its
+ * own hairline carries its edge onto any backdrop — the same material (and the same reason) as every
+ * data tile in Glass.kt. Selected then can't be a white pill on a white track, so it takes the chip's
+ * accent tint + accent border; idle is a bare label. One selection language, two containers.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -298,7 +308,10 @@ internal fun SegmentedControl(items: List<String>, selected: Int, onSelect: (Int
     val track = RoundedCornerShape(Radii.md)
     FlowRow(
         modifier = Modifier
-            .clip(track).background(MaterialTheme.colorScheme.surfaceVariant).padding(Space.xs),
+            .clip(track)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, tc.sheen, track)
+            .padding(Space.xs),
         horizontalArrangement = Arrangement.spacedBy(Space.xs),
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
@@ -307,11 +320,14 @@ internal fun SegmentedControl(items: List<String>, selected: Int, onSelect: (Int
             val seg = RoundedCornerShape(Radii.sm)
             Box(
                 modifier = Modifier.clip(seg)
-                    // Accent edge, not the sheen hairline: a raised white pill differs from its own
-                    // track by only 1.17:1 (and the sheen from either by ~1.3:1), so on the light
-                    // theme "which period is selected" was carried by nothing but the blue label.
-                    // #005FFF against the track is 3.5:1 — the state reads at a glance now.
-                    .then(if (isSel) Modifier.background(MaterialTheme.colorScheme.surface).border(1.dp, MaterialTheme.colorScheme.primary, seg) else Modifier)
+                    // Accent tint + accent edge. The fill alone would be ~1.2:1 on either theme, so the
+                    // border is what actually says "this one is on" (#005FFF is 5.15:1 on the tile).
+                    .then(
+                        if (isSel) {
+                            Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                                .border(1.dp, MaterialTheme.colorScheme.primary, seg)
+                        } else Modifier,
+                    )
                     .clickable { onSelect(i) }
                     .padding(horizontal = Space.md, vertical = tapPadV()),
             ) {

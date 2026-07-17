@@ -1,5 +1,6 @@
 package com.tradingtail.ui.journal
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -34,6 +36,7 @@ import com.tradingtail.common.formatMoney
 import com.tradingtail.data.local.entity.TradeEntity
 import com.tradingtail.data.repository.TradeRepository
 import com.tradingtail.ui.theme.FAB_CLEARANCE
+import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Space
 import com.tradingtail.ui.theme.pnlColor
 import kotlinx.coroutines.flow.Flow
@@ -43,12 +46,20 @@ class JournalViewModel(repo: TradeRepository) {
     val trades: Flow<List<TradeEntity>> = repo.allFlow()
 }
 
-/** Home screen — reactive list of matched round-trip trades, grouped by Bangkok day. */
+/**
+ * Home screen — reactive list of matched round-trip trades, grouped by Bangkok day.
+ *
+ * [selectedAnchor] is the execution id the desktop detail panel is showing, or null when the detail
+ * isn't beside the list (mobile pushes it full-screen instead, where there's no list left to correlate
+ * a highlight against). An EXECUTION id, not a trade id, for the same reason the panel is anchored on
+ * one: trade rows are re-derived — and re-keyed — every time a fill is corrected.
+ */
 @Composable
 fun JournalScreen(
     vm: JournalViewModel,
     onOpenTrade: (TradeEntity) -> Unit,
     onNewTrade: () -> Unit,
+    selectedAnchor: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     // initial = null, not emptyList(): "no trades yet" and "haven't asked the database yet" are
@@ -105,7 +116,15 @@ fun JournalScreen(
                 val subtotal = dayTrades.fold(ZERO) { acc, t -> acc.add(t.realizedPnl) }
                 item(key = "h-$day") { DayHeader(day, subtotal) }
                 items(dayTrades, key = { it.id }) { trade ->
-                    TradeRow(trade, onClick = { onOpenTrade(trade) })
+                    TradeRow(
+                        trade,
+                        // Containment, not `entryExecutionIds.first() == anchor`: the same test the
+                        // detail's own ViewModel uses to find its trade, so the highlight can't drift
+                        // from the panel when a correction reshuffles FIFO matching.
+                        selected = selectedAnchor != null &&
+                            (selectedAnchor in trade.entryExecutionIds || selectedAnchor in trade.exitExecutionIds),
+                        onClick = { onOpenTrade(trade) },
+                    )
                 }
             }
         }
@@ -144,10 +163,14 @@ private fun DayHeader(day: BkkDate, subtotal: BigDecimal) {
  * 48dp delete button was the only thing a row could do.
  */
 @Composable
-private fun TradeRow(trade: TradeEntity, onClick: () -> Unit) {
+private fun TradeRow(trade: TradeEntity, selected: Boolean, onClick: () -> Unit) {
+    // Accent wash at 0.15 — the same selection idiom as the sidebar's NavItem. Painted on the INNER
+    // column so the card's own clip rounds it; a background on GlassCard's modifier would land outside
+    // the clip and square off the corners.
+    val bg = if (selected) LocalTradeColors.current.accent.copy(alpha = 0.15f) else Color.Transparent
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+            modifier = Modifier.fillMaxWidth().background(bg).clickable(onClick = onClick)
                 .padding(horizontal = Space.md, vertical = Space.sm),
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

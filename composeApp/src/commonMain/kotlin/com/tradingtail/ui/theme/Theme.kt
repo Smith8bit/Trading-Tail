@@ -177,7 +177,10 @@ private val DarkTradeColors = TradeColors(
     accent = Color(0xFF4D8BFF),
     // Thinner tint than a solid surface — backdrop blur (Glass.kt) carries the legibility.
     glass = Color(0xFF10161F).copy(alpha = 0.50f),
-    sheen = Color(0xFFFFFFFF).copy(alpha = 0.12f),
+    // 0.20, not 0.12: the tile edge is the only thing separating a #10151F tile from the #080B12
+    // ground (the fills are 1.08:1 apart), and at 0.12 it read 1.40:1 — the bento grid had no edges.
+    // 0.20 lands at 1.87:1, matching the light sheen perceptually. See the light twin below.
+    sheen = Color(0xFFFFFFFF).copy(alpha = 0.20f),
 )
 
 private val LightTradeColors = TradeColors(
@@ -188,7 +191,13 @@ private val LightTradeColors = TradeColors(
     lossFill = Color(0xFFC62828).copy(alpha = 0.12f),
     accent = Color(0xFF005FFF),
     glass = Color(0xFFFFFFFF).copy(alpha = 0.55f),
-    sheen = Color(0xFFD4DCE7), // on light, the hairline defines the glass edge (white sheen is invisible)
+    // On light the hairline IS the glass edge (a white sheen would be invisible) — so it has to carry
+    // the whole tile. A white tile differs from the canvas by just 1.13:1, which means the Dashboard's
+    // bento grid is nothing but these 1px lines; at #D4DCE7 they were 1.38:1 and the grid had no
+    // structure, only soft white blobs. #B2C1D4 is 1.83:1 — a hairline you can actually see, and still
+    // far under the accent's 5.15:1, so a *selected* edge (Signal Blue) still outranks a *structural*
+    // one. This is the "Hairline-Not-Shadow" rule finally doing its job rather than naming it.
+    sheen = Color(0xFFB2C1D4),
 )
 
 val LocalTradeColors = staticCompositionLocalOf { DarkTradeColors }

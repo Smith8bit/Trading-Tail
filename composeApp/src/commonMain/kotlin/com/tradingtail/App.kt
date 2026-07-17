@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -140,6 +141,10 @@ fun App(module: AppModule) {
 
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp
+            // Desktop shows the selected trade beside the list instead of pushing over it — but only
+            // once there's room for all three columns: 256dp sidebar + DETAIL_PANEL + a journal list
+            // that still reads (~320dp). Under that, the full-screen push is the honest layout.
+            val splitDetail = maxWidth >= 1040.dp
             // One haze source (the aurora ground); the glass chrome panels blur what's behind them.
             // Data tiles don't — they're opaque now, see Glass.kt.
             val hazeState = remember { HazeState() }
@@ -167,21 +172,12 @@ fun App(module: AppModule) {
                 )
                 return@CompositionLocalProvider
             }
-            if (anchor != null) {
+            if (anchor != null && !splitDetail) {
                 // A pushed full-screen surface with a back arrow, over the same aurora — not a dialog.
                 // The shell's nav is deliberately gone: this is a place you leave, not a tab.
-                val detailVm = remember(anchor) {
-                    TradeDetailViewModel(
-                        anchorExecutionId = anchor,
-                        tradeRepo = module.tradeRepo,
-                        executionRepo = module.executionRepo,
-                        notesRepo = module.tradeNoteRepo,
-                        deleteTrade = module.deleteTrade,
-                        updateExecution = module.updateExecution,
-                    )
-                }
-                TradeDetailScreen(
-                    vm = detailVm,
+                TradeDetail(
+                    module = module,
+                    anchor = anchor,
                     onBack = { detailAnchor = null },
                     // No Scaffold here, so system-bar insets are this surface's own job.
                     modifier = Modifier.fillMaxSize().systemBarsPadding(),
@@ -229,7 +225,24 @@ fun App(module: AppModule) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
                         // Floating glass panel — no divider; the inset + sheen border do the separation.
                         Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport, dark = dark, onToggleTheme = { dark = !dark })
-                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, onOpenTrade = { detailAnchor = it.entryExecutionIds.firstOrNull() }, onNewTrade = { showEntry = true }, modifier = Modifier.weight(1f).fillMaxSize())
+                        ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, onOpenTrade = { detailAnchor = it.entryExecutionIds.firstOrNull() }, onNewTrade = { showEntry = true }, selectedAnchor = anchor.takeIf { splitDetail }, modifier = Modifier.weight(1f).fillMaxSize())
+                        // Content, not chrome: bare tiles over the aurora, exactly like the list beside
+                        // it. Only on Journal — a trade detail wedged next to the Calendar would be a
+                        // non-sequitur, so the anchor just goes dormant on the other tabs and the panel
+                        // is waiting when the user comes back.
+                        //
+                        // The column is permanent here, holding an empty state when nothing is picked,
+                        // rather than appearing on first click: a panel that comes and goes re-lays out
+                        // every row in the journal each time, so the list the user was aiming at moves
+                        // under the cursor at the exact moment they click it.
+                        if (splitDetail && screen == Screen.Journal) {
+                            val panel = Modifier.width(DETAIL_PANEL).fillMaxHeight()
+                            if (anchor != null) {
+                                TradeDetail(module, anchor, onBack = { detailAnchor = null }, modifier = panel)
+                            } else {
+                                DetailEmpty(panel)
+                            }
+                        }
                     }
                 } else {
                     // No app bar on mobile — Import + theme float over the immersive content, bottom-LEFT,
@@ -324,6 +337,57 @@ private suspend fun runImport(
             )
             if (action == SnackbarResult.ActionPerformed) runImport(module, snackbar, onPreview)
         }
+}
+
+/**
+ * Width of the desktop detail panel. Above phone width on purpose: the detail's widest rows are a
+ * label against a monospace figure ("Proceeds (sold)" … "+$407.00"), and the fills list adds a third
+ * column of fees — at phone width those crowd the gutter the eye needs to pair label to number.
+ */
+private val DETAIL_PANEL = 540.dp
+
+/**
+ * The trade detail, wherever it's rendered: a full-screen push when the window is too narrow to split,
+ * a right-hand panel when it isn't. Same screen, same ViewModel, keyed on the anchor fill — only the
+ * modifier differs, so the two layouts can't drift apart.
+ */
+@Composable
+private fun TradeDetail(module: AppModule, anchor: Long, onBack: () -> Unit, modifier: Modifier) {
+    val vm = remember(anchor) {
+        TradeDetailViewModel(
+            anchorExecutionId = anchor,
+            tradeRepo = module.tradeRepo,
+            executionRepo = module.executionRepo,
+            notesRepo = module.tradeNoteRepo,
+            deleteTrade = module.deleteTrade,
+            updateExecution = module.updateExecution,
+        )
+    }
+    TradeDetailScreen(vm = vm, onBack = onBack, modifier = modifier)
+}
+
+/**
+ * The panel with nothing picked. Bare centered text over the aurora — the same shape as the journal's
+ * own "No trades yet", not a card: an empty card would draw a big lit box around the absence of data,
+ * and tiles in this app mean "a figure lives here".
+ */
+@Composable
+private fun DetailEmpty(modifier: Modifier) {
+    Column(
+        modifier = modifier.padding(Space.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("No trade selected", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Pick a trade from the journal to see the fills behind its P&L, the arithmetic that gets " +
+                "there, and the note you left on it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = Space.xs),
+        )
+    }
 }
 
 @Composable
@@ -485,13 +549,14 @@ private fun ScreenContent(
     analyticsVm: AnalyticsViewModel,
     onOpenTrade: (TradeEntity) -> Unit,
     onNewTrade: () -> Unit,
+    selectedAnchor: Long? = null,
     modifier: Modifier,
 ) {
     // Transparent so the immersive canvas + glow show through the bento tile gaps; tiles stay opaque surface.
     Surface(modifier = modifier, color = Color.Transparent) {
         when (screen) {
             Screen.Dashboard -> DashboardScreen(analyticsVm)
-            Screen.Journal -> JournalScreen(journalVm, onOpenTrade = onOpenTrade, onNewTrade = onNewTrade)
+            Screen.Journal -> JournalScreen(journalVm, onOpenTrade = onOpenTrade, onNewTrade = onNewTrade, selectedAnchor = selectedAnchor)
             Screen.Calendar -> CalendarScreen(calendarVm)
             Screen.Analytics -> AnalyticsScreen(analyticsVm, onOpenCalendar = { onNavigate(Screen.Calendar) })
         }
