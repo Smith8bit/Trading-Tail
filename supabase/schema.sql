@@ -9,10 +9,12 @@
 -- Money and quantity are `text`, not `numeric`: they hold the exact BigDecimal string the client
 -- produces, so a fill can't pick up floating-point drift crossing the wire.
 --
--- RLS is intentionally left DISABLED. This is a private, single-user, no-auth project (CLAUDE.md
--- decision 6) — the anon key is the only key and it needs full access. Supabase will flag these
--- tables as "unrestricted"; that is expected here, not a mistake. Do NOT enable RLS unless the
--- project ever becomes multi-user.
+-- Access is fully OPEN — this is a private, single-user, no-auth project (CLAUDE.md decision 6);
+-- the publishable key is the only key and it needs full CRUD. New Supabase projects enable RLS by
+-- default and keep it sticky (a plain `disable row level security` did NOT take here), so instead of
+-- fighting RLS we grant blanket-permissive policies below: with RLS on they open everything, and if
+-- RLS is off they're simply ignored. Net result either way is a fully-open table, which is the intent.
+-- Do NOT narrow these policies unless the project ever becomes multi-user.
 
 create table if not exists public.executions (
     sync_id          text        primary key,   -- stable cross-device id (the local Room id never leaves)
@@ -38,8 +40,14 @@ create table if not exists public.trade_notes (
     primary key (symbol, entry_ts, exit_ts)      -- the round-trip's natural key, already stable across devices
 );
 
--- The anon key CRUDs both tables (RLS is off). Explicit so the script doesn't depend on project
--- default-privilege settings.
+-- Blanket-permissive policies = full open access regardless of the project's RLS state (see header).
+-- No role clause → applies to `public` (covers the anon/publishable key).
+drop policy if exists tt_open on public.executions;
+drop policy if exists tt_open on public.trade_notes;
+create policy tt_open on public.executions for all using (true) with check (true);
+create policy tt_open on public.trade_notes for all using (true) with check (true);
+
+-- Explicit grants so the script doesn't depend on project default-privilege settings.
 grant all on public.executions to anon;
 grant all on public.trade_notes to anon;
 

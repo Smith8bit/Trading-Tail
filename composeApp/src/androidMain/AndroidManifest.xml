@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Required for Supabase sync; without it every network call fails silently on Android. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="Trading Tail"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
