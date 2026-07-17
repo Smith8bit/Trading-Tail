@@ -23,18 +23,28 @@ interface ExecutionDao {
     @Update
     suspend fun update(execution: ExecutionEntity)
 
-    @Query("SELECT * FROM executions WHERE symbol = :symbol ORDER BY timestamp, id")
+    // The app-facing reads all hide tombstones, so the matcher and UI never see a soft-deleted fill.
+    @Query("SELECT * FROM executions WHERE symbol = :symbol AND deleted = 0 ORDER BY timestamp, id")
     suspend fun bySymbol(symbol: String): List<ExecutionEntity>
 
-    @Query("SELECT * FROM executions ORDER BY timestamp, id")
+    @Query("SELECT * FROM executions WHERE deleted = 0 ORDER BY timestamp, id")
     suspend fun all(): List<ExecutionEntity>
 
     // Reactive feed for the dashboard's fee/volume/entry-price widgets.
-    @Query("SELECT * FROM executions ORDER BY timestamp, id")
+    @Query("SELECT * FROM executions WHERE deleted = 0 ORDER BY timestamp, id")
     fun allFlow(): Flow<List<ExecutionEntity>>
 
-    @Query("DELETE FROM executions WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<Long>)
+    // Soft delete: keep the row as a tombstone so the deletion syncs, and bump the clock so it wins.
+    @Query("UPDATE executions SET deleted = 1, updatedAt = :now WHERE id IN (:ids)")
+    suspend fun softDeleteByIds(ids: List<Long>, now: Long)
+
+    // --- sync ---
+    @Query("SELECT * FROM executions WHERE syncId = :syncId LIMIT 1")
+    suspend fun bySyncId(syncId: String): ExecutionEntity?
+
+    // Every row including tombstones — the sync layer needs to push deletions, not hide them.
+    @Query("SELECT * FROM executions")
+    suspend fun allForSync(): List<ExecutionEntity>
 }
 
 /**
@@ -43,18 +53,22 @@ interface ExecutionDao {
  */
 @Dao
 interface TradeNoteDao {
+    // Also the sync apply path: the composite PK is the natural key, so @Upsert resolves a remote note
+    // (including a tombstone) against the local one for free.
     @Upsert
     suspend fun upsert(note: TradeNoteEntity)
 
-    @Query("DELETE FROM trade_notes WHERE symbol = :symbol AND entryTs = :entryTs AND exitTs = :exitTs")
-    suspend fun delete(symbol: String, entryTs: Long, exitTs: Long)
-
-    @Query("SELECT * FROM trade_notes WHERE symbol = :symbol AND entryTs = :entryTs AND exitTs = :exitTs")
+    // Tombstones are hidden from the app but kept in the table so a cleared note stays cleared after sync.
+    @Query("SELECT * FROM trade_notes WHERE symbol = :symbol AND entryTs = :entryTs AND exitTs = :exitTs AND deleted = 0")
     fun byKeyFlow(symbol: String, entryTs: Long, exitTs: Long): Flow<TradeNoteEntity?>
 
     // Powers the calendar's note glyph.
-    @Query("SELECT * FROM trade_notes")
+    @Query("SELECT * FROM trade_notes WHERE deleted = 0")
     fun allFlow(): Flow<List<TradeNoteEntity>>
+
+    // Every note including tombstones, for the sync layer.
+    @Query("SELECT * FROM trade_notes")
+    suspend fun allForSync(): List<TradeNoteEntity>
 }
 
 @Dao

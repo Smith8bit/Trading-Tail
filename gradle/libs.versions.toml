@@ -12,6 +12,9 @@ sqlite = "2.5.1"
 pdfbox = "3.0.3"
 pdfboxAndroid = "2.0.27.0"
 haze = "1.4.0" # last line built against CMP 1.7.x (1.5.0 moves to CMP 1.8)
+supabase = "3.1.4" # KMP Supabase client; 3.1.4 builds on Kotlin 2.1.x, pulls ktor 3.1.2
+ktor = "3.1.2"     # match supabase-kt 3.1.4's ktor to avoid split versions
+serializationJson = "1.8.0"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
@@ -21,6 +24,10 @@ androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.r
 pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 pdfbox-android = { module = "com.tom-roush:pdfbox-android", version.ref = "pdfboxAndroid" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
+supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
+supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt" } # version from the BOM
+ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" } # websocket-capable JVM/Android engine
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serializationJson" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
@@ -29,3 +36,4 @@ composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "k
 androidApplication = { id = "com.android.application", version.ref = "agp" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 androidxRoom = { id = "androidx.room", version.ref = "room" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

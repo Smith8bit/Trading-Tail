@@ -10,6 +10,6 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
  */
 fun createTradeDatabase(builder: RoomDatabase.Builder<TradeDatabase>): TradeDatabase =
     builder
-        .addMigrations(MIGRATION_1_2)
+        .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
         .setDriver(BundledSQLiteDriver())
         .build()

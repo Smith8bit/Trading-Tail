@@ -26,7 +26,7 @@ import com.tradingtail.data.local.entity.TradeTagCrossRef
         TagEntity::class,
         TradeTagCrossRef::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -74,6 +74,35 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         )
         connection.execSQL("DROP TABLE `trades`")
         connection.execSQL("ALTER TABLE `trades_new` RENAME TO `trades`")
+    }
+}
+
+/**
+ * v2 -> v3: adds sync bookkeeping (see data/sync/SyncManager) to the two tables that cross the wire.
+ *
+ * `executions` gets a [syncId] — the stable cross-device identity the churning local row id can't be —
+ * plus an `updatedAt` clock and a `deleted` tombstone flag. Existing fills are backfilled with a random
+ * 128-bit id (`randomblob`, SQLite's only per-row uniqueness primitive — no UUID function) and a real
+ * `updatedAt` so the first sync actually pushes them (a 0 clock would look older than everything). The
+ * unique index is created *after* the backfill, when no two rows still share the empty default.
+ *
+ * `trades` is intentionally untouched: it is derived, disposable, and never synced — each device
+ * rebuilds it from the fills.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL("ALTER TABLE `executions` ADD COLUMN `syncId` TEXT NOT NULL DEFAULT ''")
+        connection.execSQL("ALTER TABLE `executions` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+        connection.execSQL("ALTER TABLE `executions` ADD COLUMN `deleted` INTEGER NOT NULL DEFAULT 0")
+        connection.execSQL(
+            "UPDATE `executions` SET `syncId` = lower(hex(randomblob(16))), " +
+                "`updatedAt` = CAST(strftime('%s','now') AS INTEGER) * 1000 WHERE `syncId` = ''",
+        )
+        connection.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_executions_syncId` ON `executions` (`syncId`)")
+
+        connection.execSQL("ALTER TABLE `trade_notes` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+        connection.execSQL("ALTER TABLE `trade_notes` ADD COLUMN `deleted` INTEGER NOT NULL DEFAULT 0")
+        connection.execSQL("UPDATE `trade_notes` SET `updatedAt` = CAST(strftime('%s','now') AS INTEGER) * 1000")
     }
 }
 

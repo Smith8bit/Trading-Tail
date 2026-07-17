@@ -11,6 +11,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * v1 -> v2 moves notes off the (rebuildable) trades row into `trade_notes`.
@@ -108,8 +109,62 @@ class MigrationTest {
         db.close()
     }
 
+    /** A v2 database with one real fill and one note — enough to prove the v3 backfill touches rows. */
+    private fun seedV2() {
+        val conn = BundledSQLiteDriver().open(dbFile.absolutePath)
+        conn.execSQL(
+            "CREATE TABLE IF NOT EXISTS `executions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`symbol` TEXT NOT NULL, `side` TEXT NOT NULL, `price` TEXT NOT NULL, `quantity` TEXT NOT NULL, " +
+                "`timestamp` INTEGER NOT NULL, `fees` TEXT NOT NULL, `instrumentType` TEXT NOT NULL, `source` TEXT NOT NULL)",
+        )
+        conn.execSQL(
+            "CREATE TABLE IF NOT EXISTS `trades` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`symbol` TEXT NOT NULL, `direction` TEXT NOT NULL, `entryExecutionIds` TEXT NOT NULL, " +
+                "`exitExecutionIds` TEXT NOT NULL, `realizedPnl` TEXT NOT NULL, `entryTimestamp` INTEGER NOT NULL, " +
+                "`exitTimestamp` INTEGER NOT NULL)",
+        )
+        conn.execSQL(
+            "CREATE TABLE IF NOT EXISTS `trade_notes` (`symbol` TEXT NOT NULL, `entryTs` INTEGER NOT NULL, " +
+                "`exitTs` INTEGER NOT NULL, `note` TEXT NOT NULL, PRIMARY KEY(`symbol`, `entryTs`, `exitTs`))",
+        )
+        conn.execSQL("CREATE TABLE IF NOT EXISTS `tags` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL)")
+        conn.execSQL(
+            "CREATE TABLE IF NOT EXISTS `trade_tag_cross_ref` (`tradeId` INTEGER NOT NULL, `tagId` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`tradeId`, `tagId`))",
+        )
+        conn.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)")
+        conn.execSQL("INSERT OR REPLACE INTO room_master_table (id, identity_hash) VALUES (42, '$IDENTITY_HASH_V2')")
+        conn.execSQL(
+            "INSERT INTO `executions` (`symbol`, `side`, `price`, `quantity`, `timestamp`, `fees`, `instrumentType`, `source`) " +
+                "VALUES ('AAPL', 'BUY', '150.00', '10', 100, '0', 'STOCK', 'MANUAL')",
+        )
+        conn.execSQL("INSERT INTO `trade_notes` (`symbol`, `entryTs`, `exitTs`, `note`) VALUES ('AAPL', 100, 200, 'held too long')")
+        conn.execSQL("PRAGMA user_version = 2")
+        conn.close()
+    }
+
+    @Test
+    fun `migrating v2 backfills sync columns on existing rows`() = runBlocking {
+        seedV2()
+        val db = openV2() // opening the current DB runs 2 -> 3
+
+        // The fill gets a stable cross-device id and a non-zero clock, or it would never sync out.
+        val exec = db.executionDao().allForSync().single()
+        assertTrue(exec.syncId.isNotEmpty(), "syncId must be backfilled")
+        assertTrue(exec.updatedAt > 0, "updatedAt must be a real clock so first sync pushes it")
+        assertEquals(false, exec.deleted)
+
+        // The note is likewise stamped, and still readable through the deleted-filtering reads.
+        val note = db.tradeNoteDao().allFlow().first().single()
+        assertEquals("held too long", note.note)
+        assertTrue(note.updatedAt > 0)
+        db.close()
+    }
+
     private companion object {
         // From schemas/…/1.json. If v1's schema ever changes this is wrong, but v1 is shipped and frozen.
         const val IDENTITY_HASH_V1 = "9da713fd143ef3740782df77505db804"
+        // From schemas/…/2.json — the point migration 2 -> 3 starts from.
+        const val IDENTITY_HASH_V2 = "31d5a070730a446b2991e99e763f5d24"
     }
 }

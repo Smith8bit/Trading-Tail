@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -138,6 +139,10 @@ fun App(module: AppModule) {
                 module.calculatePnlByHour,
             )
         }
+
+        // Background two-way sync while the app is open. No-op when no credentials are configured
+        // (syncManager == null). Cancelled automatically when App leaves composition.
+        module.syncManager?.let { LaunchedEffect(it) { it.runPeriodic() } }
 
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp

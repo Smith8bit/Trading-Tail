@@ -1,6 +1,7 @@
 package com.tradingtail.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.tradingtail.common.BigDecimal
 
@@ -9,8 +10,14 @@ enum class Direction { LONG, SHORT }
 enum class InstrumentType { STOCK, OPTION, FUTURES, FOREX }
 enum class ExecutionSource { MANUAL, CSV, PDF }
 
-/** A single fill — one CSV row or one leg of a manual entry. */
-@Entity(tableName = "executions")
+/**
+ * A single fill — one imported statement row or one leg of a manual entry.
+ *
+ * `id` is the device-local Room row id; it is NOT stable across devices, so sync keys on [syncId]
+ * (a UUID assigned once at creation). The three sync columns are stamped by [ExecutionRepository],
+ * never by usecases — they carry their construction defaults through and the repo overwrites them.
+ */
+@Entity(tableName = "executions", indices = [Index(value = ["syncId"], unique = true)])
 data class ExecutionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val symbol: String,
@@ -21,6 +28,10 @@ data class ExecutionEntity(
     val fees: BigDecimal,
     val instrumentType: InstrumentType,
     val source: ExecutionSource,
+    // --- sync bookkeeping (see data/sync/SyncManager) ---
+    val syncId: String = "",      // stable cross-device identity
+    val updatedAt: Long = 0L,     // last local mutation, epoch millis — the last-write-wins clock
+    val deleted: Boolean = false, // tombstone: soft-deleted so the delete propagates, then filtered from reads
 )
 
 /**
@@ -62,6 +73,10 @@ data class TradeNoteEntity(
     val entryTs: Long,
     val exitTs: Long,
     val note: String,
+    // The composite PK is already a stable cross-device key, so notes need no syncId — only the
+    // last-write-wins clock and a tombstone so a cleared note propagates instead of silently reappearing.
+    val updatedAt: Long = 0L,
+    val deleted: Boolean = false,
 )
 
 @Entity(tableName = "tags")

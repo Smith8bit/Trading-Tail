@@ -1,5 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -8,6 +9,7 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.ksp)
     alias(libs.plugins.androidxRoom)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -27,6 +29,7 @@ kotlin {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
             implementation(libs.pdfbox.android)
+            implementation(libs.ktor.client.cio) // ktor engine for the Supabase client on Android
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -37,10 +40,14 @@ kotlin {
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.sqlite.bundled)
             implementation(libs.haze) // backdrop blur for the glass chrome (sidebar/bars)
+            implementation(project.dependencies.platform(libs.supabase.bom))
+            implementation(libs.supabase.postgrest) // sync transport — Postgrest only (no Realtime yet)
+            implementation(libs.kotlinx.serialization.json)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.pdfbox)
+            implementation(libs.ktor.client.cio) // ktor engine for the Supabase client on desktop
         }
         val desktopTest by getting
         desktopTest.dependencies {
@@ -60,9 +67,18 @@ dependencies {
     add("kspDesktop", libs.androidx.room.compiler)
 }
 
+// Supabase credentials for the Android build, from the gitignored root local.properties (keys
+// `supabase.url` / `supabase.anonKey`). Baked into BuildConfig; empty when unset → sync stays off.
+val syncProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
 android {
     namespace = "com.tradingtail"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
+
+    buildFeatures { buildConfig = true }
 
     defaultConfig {
         applicationId = "com.tradingtail"
@@ -70,6 +86,8 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "SUPABASE_URL", "\"${syncProps.getProperty("supabase.url", "")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${syncProps.getProperty("supabase.anonKey", "")}\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
