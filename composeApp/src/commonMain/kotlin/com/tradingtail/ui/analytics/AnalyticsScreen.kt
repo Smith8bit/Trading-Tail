@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -18,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -84,7 +85,6 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
     var view by remember { mutableStateOf(ReportView.Recent) }
     var fromDate by remember { mutableStateOf<BkkDate?>(null) }
     var toDate by remember { mutableStateOf<BkkDate?>(null) }
-    val tabs = listOf("Overview", "Detailed", "Win vs Loss Days", "Drawdown")
 
     // Global From–To day filter (by trade day = entry day); every tab reads from these filtered sets.
     val hasFilter = fromDate != null || toDate != null
@@ -96,6 +96,16 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         // ponytail: one breakpoint — <600dp (phones) stacks every 2-up and scrolls overflowing bars.
         val compact = maxWidth < 600.dp
+        // The sheet's heads must fit one row (the outline traces the active head, so they can't wrap),
+        // and at full length they measured ~1060px against a 411dp phone's 1017 — "Drawdown" lost its
+        // last letter. "Win vs Loss Days" is the outlier at ~2x its siblings; contracting just that one
+        // on compact buys back enough for all four. It still says days, which is what the report is.
+        val tabs = listOf(
+            "Overview",
+            "Detailed",
+            if (compact) "Win/Loss Days" else "Win vs Loss Days",
+            "Drawdown",
+        )
         CompositionLocalProvider(LocalCompact provides compact) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = Space.md)) {
         Text(
@@ -164,8 +174,14 @@ private fun ReportViewToggle(current: ReportView, onOpenCalendar: () -> Unit, on
 
 /**
  * The Overview tab's one control row: view selector left, 30/60/90 window right — grouped and
- * baseline-aligned instead of the old two stacked rows with opposite alignments. Compact keeps
- * everything on a single horizontally-scrollable line (the established narrow-width pattern here).
+ * baseline-aligned instead of the old two stacked rows with opposite alignments.
+ *
+ * Compact stacks the two tracks instead. Side by side they measured ~1210px against a 411dp (1017px)
+ * phone, and the horizontalScroll that was supposed to rescue them meant "60 Days"/"90 Days" rendered
+ * entirely off-screen — two thirds of the window selector, invisible with nothing to hint at it. The
+ * scroll also fed [SegmentedControl] an infinite width constraint, so the track could never wrap
+ * itself out of the problem. Stacked, each track has the full width and fits. Mirrors the Dashboard's
+ * compact header, which stacks its title and the same PeriodToggle for the same reason.
  */
 @Composable
 private fun OverviewControls(
@@ -177,16 +193,12 @@ private fun OverviewControls(
     onPeriod: (Int) -> Unit,
 ) {
     if (LocalCompact.current) {
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(Space.sm),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             ReportViewToggle(view, onOpenCalendar, onView)
-            if (showPeriod) {
-                Spacer(Modifier.width(Space.md)) // a visible seam between the two chip groups
-                PeriodToggle(period, onPeriod)
-            }
+            if (showPeriod) PeriodToggle(period, onPeriod)
         }
     } else {
         Row(
@@ -348,13 +360,19 @@ private fun YearMonthDayView(trades: List<TradeEntity>, now: Long) {
     }
 }
 
-/** A horizontally scrollable row of selectable chips (the year picker, the month picker). */
+/**
+ * A row of selectable chips (the year picker, the month picker) that **wraps** instead of scrolling —
+ * the twelve month chips ran ~1670px against a 411dp phone's 1017, so more than half the year was
+ * reachable only by a sideways swipe with nothing on screen to suggest it. A month picker that hides
+ * months is not a picker. Wrapping fits any item count at any font scale.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChipRow(items: List<String>, selected: String, onSelect: (String) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         for (item in items) ToggleChip(item, item == selected) { onSelect(item) }
     }
@@ -416,11 +434,11 @@ private fun InstrumentSection(trades: List<TradeEntity>, qtyById: (Long) -> BigD
     }
 }
 
-/** The mock's Days/Times · Price/Volume · … category selector, a segmented control (scrolls on narrow widths). */
+/** The mock's Days/Times · Price/Volume · … category selector, a segmented control (wraps on narrow widths). */
 @Composable
 private fun CategoryToggle(current: DetailCat, onSelect: (DetailCat) -> Unit) {
     val cats = DetailCat.entries.toList()
-    SegmentedControl(cats.map { it.label }, cats.indexOf(current), scrollable = true) { onSelect(cats[it]) }
+    SegmentedControl(cats.map { it.label }, cats.indexOf(current)) { onSelect(cats[it]) }
 }
 
 private data class Stat(val label: String, val value: String, val color: Color)

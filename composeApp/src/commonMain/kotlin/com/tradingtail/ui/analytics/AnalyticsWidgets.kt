@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -21,7 +23,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -276,19 +277,25 @@ private fun sheetOutline(head: Rect, size: Size, r: Float): Path {
 /**
  * A **segmented control** for the sub-level switchers (view mode, period, category): one recessed
  * surfaceVariant track, segments butted together, the selected one raised to a surface pill with a
- * sheen edge + primary label. Deliberately subordinate to the filled [CardTabs] above. [selected] may
- * be out of range so a nav-only segment (Calendar) shows no highlight; [scrollable] lets a long track
- * (the category selector) scroll on narrow widths.
+ * sheen edge + primary label. Deliberately subordinate to the tab sheet above. [selected] may be out
+ * of range so a nav-only segment (Calendar) shows no highlight.
+ *
+ * The track **wraps** rather than scrolling: a segment the user can't see is a segment they don't know
+ * exists, and the category track (four labels up to "Win/Loss/Expectation") ran ~300dp past a 411dp
+ * phone with nothing to suggest it continued. Wrapping fits by construction at any label set and any
+ * font scale, so there's no width to keep re-tuning. Callers must give this a bounded width — inside a
+ * horizontalScroll the constraint is infinite and it would lay out as one unwrapped row again.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun SegmentedControl(items: List<String>, selected: Int, scrollable: Boolean = false, onSelect: (Int) -> Unit) {
+internal fun SegmentedControl(items: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     val tc = LocalTradeColors.current
     val track = RoundedCornerShape(Radii.md)
-    Row(
+    FlowRow(
         modifier = Modifier
-            .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
             .clip(track).background(MaterialTheme.colorScheme.surfaceVariant).padding(Space.xs),
         horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         items.forEachIndexed { i, label ->
             val isSel = i == selected
@@ -318,27 +325,26 @@ internal fun PeriodToggle(period: Int, onSelect: (Int) -> Unit) {
 }
 
 /** Preview's top week strip: last 7 Bangkok days, each cell a day's realized P&L + trade count. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
-    // ponytail: on a phone, 7 equal cells = ~41dp each and the $ value clips — scroll + min-width instead.
     val compact = LocalCompact.current
-    val scroll = rememberScrollState()
 
-    // Open on TODAY, not on last Tuesday. The strip runs oldest→newest, so today is the 7th cell —
-    // seven ~92dp cells is ~700dp of content on a 411dp phone, which left the single figure the user
-    // opened the app for about 340dp off-screen right, at scroll position zero, with no affordance
-    // suggesting it existed. Scrolling to the end costs nothing and keeps the week in chronological
-    // order (reversing it would put Saturday before Friday to solve a scroll problem).
-    LaunchedEffect(compact, scroll.maxValue) {
-        if (compact && scroll.maxValue > 0) scroll.scrollTo(scroll.maxValue)
-    }
+    // Seven cells wide enough for an exact figure is ~700dp of content on a 411dp phone, so this used
+    // to scroll — and it opened scrolled to today, because at position zero the one figure the user
+    // came for sat ~340dp off-screen. That fixed the default view but not the problem: three days were
+    // always unreachable without a sideways swipe nothing advertised. Wrapping 4+3 shows the whole week
+    // at once; a wrapped cell is ~91dp, the width the min was protecting, so the figure still doesn't
+    // clip. Chronological order survives (reversing it would put Saturday before Friday).
+    val perRow = if (compact) 4 else days.size
 
     Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
         Text(rangeLabel, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .then(if (compact) Modifier.horizontalScroll(scroll) else Modifier),
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
+            maxItemsInEachRow = perRow,
         ) {
             for (d in days) {
                 // Opaque like every other data surface — a bare outline here left the aurora showing
@@ -346,7 +352,7 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
                 val shape = RoundedCornerShape(Radii.md)
                 val border = if (d.isToday) MaterialTheme.colorScheme.primary else LocalTradeColors.current.sheen
                 Column(
-                    modifier = (if (compact) Modifier.widthIn(min = 92.dp) else Modifier.weight(1f))
+                    modifier = Modifier.weight(1f)
                         // heightIn(min=), not height(): a hard 84dp box over three stacked Text lines
                         // clipped its own contents once the user's font scale grew. Measured on a Pixel 9
                         // at scale 1.5, the "N trades" line vanished from the view hierarchy entirely.
@@ -380,6 +386,9 @@ internal fun WeekStrip(days: List<WeekDay>, rangeLabel: String) {
                     )
                 }
             }
+            // Fill the last row's empty slots so a wrapped week stays a grid: without these, FlowRow
+            // shares row 2 between 3 cells and they render wider than row 1's 4.
+            if (days.size % perRow != 0) repeat(perRow - days.size % perRow) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
