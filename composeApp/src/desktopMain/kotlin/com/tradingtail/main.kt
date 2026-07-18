@@ -5,14 +5,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.tradingtail.common.localSettings
 import com.tradingtail.data.local.createTradeDatabase
 import com.tradingtail.data.local.databaseBuilder
-import com.tradingtail.data.remote.SyncConfig
-import java.io.File
-import java.util.Properties
 
 fun main() = application {
-    val module = remember { AppModule(createTradeDatabase(databaseBuilder()), loadSyncConfig()) }
+    // Sync credentials now live in LocalSettings (entered via Settings), not a dedicated creds file —
+    // an existing supabase.properties is migrated in on first load. See LocalSettings.desktop.kt.
+    val module = remember { AppModule(createTradeDatabase(databaseBuilder()), localSettings()) }
     Window(
         onCloseRequest = ::exitApplication,
         title = "Trading Tail",
@@ -22,18 +22,4 @@ fun main() = application {
     ) {
         App(module)
     }
-}
-
-/**
- * Supabase credentials for sync, from `~/.tradetail/supabase.properties` (same dir as the DB, gitignored
- * by living outside the repo). Keys: `url`, `anonKey`. Absent file → null → sync stays off, app runs
- * fully offline. The anon key is a public client key by design (no-auth, open-RLS single-user project).
- */
-private fun loadSyncConfig(): SyncConfig? {
-    val file = File(System.getProperty("user.home"), ".tradetail/supabase.properties")
-    if (!file.exists()) return null
-    val props = Properties().apply { file.inputStream().use { load(it) } }
-    val url = props.getProperty("url")?.trim().orEmpty()
-    val key = props.getProperty("anonKey")?.trim().orEmpty()
-    return if (url.isNotEmpty() && key.isNotEmpty()) SyncConfig(url, key) else null
 }

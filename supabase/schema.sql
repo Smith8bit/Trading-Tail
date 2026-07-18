@@ -1,6 +1,9 @@
 -- Trading Tail — Supabase sync schema
 -- =====================================
--- Run this once in your Supabase project: Dashboard → SQL Editor → paste → Run.
+-- Sync is OPT-IN and per-user: each person runs this once in THEIR OWN Supabase project, then pastes
+-- that project's URL + publishable key into the app's Settings. The app ships with no credentials and
+-- syncs nothing until you do this — so no two users ever share a database.
+-- Run it: Dashboard → SQL Editor → paste → Run.
 --
 -- Only two tables sync. `executions` and `trade_notes` are the durable, user-owned data; `trades`
 -- are DERIVED and never leave the device — each client re-runs the FIFO matcher locally. See

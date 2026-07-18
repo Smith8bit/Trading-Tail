@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -47,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +76,11 @@ import com.tradingtail.ui.analytics.AnalyticsViewModel
 import com.tradingtail.ui.analytics.DashboardScreen
 import com.tradingtail.data.local.entity.TradeEntity
 import com.tradingtail.data.imports.pickPdfBytes
+import com.tradingtail.data.sync.SyncState
+import com.tradingtail.ui.settings.OnboardingScreen
+import com.tradingtail.ui.settings.SettingsDialog
+import com.tradingtail.ui.settings.initials
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.tradingtail.domain.usecase.ImportPreview
 import com.tradingtail.ui.calendar.CalendarScreen
 import com.tradingtail.ui.calendar.CalendarViewModel
@@ -142,7 +149,17 @@ fun App(module: AppModule) {
 
         // Background two-way sync while the app is open. No-op when no credentials are configured
         // (syncManager == null). Cancelled automatically when App leaves composition.
-        module.syncManager?.let { LaunchedEffect(it) { it.runPeriodic() } }
+        val syncManager = module.syncManager
+        syncManager?.let { LaunchedEffect(it) { it.runPeriodic() } }
+        // Always collect from a non-null flow so collectAsState is called unconditionally (Compose rule);
+        // a stand-in flow covers the no-credentials case. The Sync button is hidden then anyway.
+        val syncFlow = remember(syncManager) { syncManager?.state ?: MutableStateFlow(SyncState()) }
+        val syncState by syncFlow.collectAsState()
+        val onSync: () -> Unit = { syncManager?.let { sm -> scope.launch { sm.syncOnce() } } }
+
+        // Device-local profile — drives first-run onboarding and the account chip; never synced.
+        val appSettings by module.settings.data.collectAsState()
+        var showSettings by remember { mutableStateOf(false) }
 
         BoxWithConstraints {
             val wide = maxWidth >= 600.dp
@@ -157,6 +174,14 @@ fun App(module: AppModule) {
             // Transparent containers break contentColorFor's chain (it falls back to an unset local →
             // black text on the dark canvas). Pin the content color once for the whole shell.
             CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+            if (!appSettings.configured) {
+                // First run: ask the name before anything else, over the same aurora ground.
+                OnboardingScreen(
+                    onDone = { name -> module.settings.update { it.copy(displayName = name, configured = true) } },
+                    modifier = Modifier.fillMaxSize().systemBarsPadding(),
+                )
+                return@CompositionLocalProvider
+            }
             val anchor = detailAnchor
             if (showEntry) {
                 // A pushed full-screen surface, per DESIGN.md's nav spec ("a full-screen overlay with a
@@ -229,7 +254,7 @@ fun App(module: AppModule) {
                 if (wide) {
                     Row(modifier = Modifier.fillMaxSize().padding(padding)) {
                         // Floating glass panel — no divider; the inset + sheen border do the separation.
-                        Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport, dark = dark, onToggleTheme = { dark = !dark })
+                        Sidebar(hazeState, current = screen, onSelect = { screen = it }, onNewTrade = { showEntry = true }, onImport = onImport, dark = dark, onToggleTheme = { dark = !dark }, syncEnabled = syncManager != null, syncState = syncState, onSync = onSync, displayName = appSettings.displayName, onOpenSettings = { showSettings = true })
                         ScreenContent(screen, { screen = it }, journalVm, calendarVm, analyticsVm, onOpenTrade = { detailAnchor = it.entryExecutionIds.firstOrNull() }, onNewTrade = { showEntry = true }, selectedAnchor = anchor.takeIf { splitDetail }, modifier = Modifier.weight(1f).fillMaxSize())
                         // Content, not chrome: bare tiles over the aurora, exactly like the list beside
                         // it. Only on Journal — a trade detail wedged next to the Calendar would be a
@@ -264,12 +289,25 @@ fun App(module: AppModule) {
                             dark = dark,
                             onToggleTheme = { dark = !dark },
                             onImport = onImport,
+                            syncEnabled = syncManager != null,
+                            syncState = syncState,
+                            onSync = onSync,
+                            displayName = appSettings.displayName,
+                            onOpenSettings = { showSettings = true },
                             modifier = Modifier.align(Alignment.BottomStart).padding(Space.md),
                         )
                     }
                 }
             }
             }
+        }
+
+        if (showSettings) {
+            SettingsDialog(
+                current = appSettings,
+                onSave = { updated -> module.settings.update { updated }; showSettings = false },
+                onDismiss = { showSettings = false },
+            )
         }
 
         // Statement import: preview the parsed fills, then commit on confirm.
@@ -408,6 +446,11 @@ private fun FloatingActions(
     dark: Boolean,
     onToggleTheme: () -> Unit,
     onImport: () -> Unit,
+    syncEnabled: Boolean,
+    syncState: SyncState,
+    onSync: () -> Unit,
+    displayName: String,
+    onOpenSettings: () -> Unit,
     modifier: Modifier,
 ) {
     val tc = LocalTradeColors.current
@@ -425,8 +468,26 @@ private fun FloatingActions(
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        AccountAvatar(displayName, onOpenSettings)
         ThemeToggleButton(dark, onToggleTheme)
         TextButton(onClick = onImport) { Text("Import") }
+        if (syncEnabled) SyncButton(syncState, onSync)
+    }
+}
+
+// The account avatar — a tappable initials disc that opens Settings. On mobile it's the only profile
+// entry point (the sidebar chip is desktop-only); the 48dp box gives it a full thumb target.
+@Composable
+private fun AccountAvatar(name: String, onClick: () -> Unit) {
+    Box(modifier = Modifier.size(48.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.size(32.dp).clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(initials(name), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -449,9 +510,30 @@ private fun ThemeToggleButton(dark: Boolean, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Manual sync trigger — the 20s poll already runs, this is the "don't make me wait" button. Reflects
+ * the shared [SyncState]: a spinner while a pass (manual or the poll's) is in flight, the loss colour
+ * if the last pass errored, plain otherwise. Disabled mid-sync so a double-tap can't stack passes.
+ */
+@Composable
+private fun SyncButton(state: SyncState, onSync: () -> Unit, modifier: Modifier = Modifier) {
+    val label = when {
+        state.syncing -> "Syncing…"
+        state.error != null -> "Sync failed"
+        else -> "Sync"
+    }
+    TextButton(onClick = onSync, enabled = !state.syncing, modifier = modifier) {
+        if (state.syncing) {
+            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = LocalTradeColors.current.accent)
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(label, color = if (state.error != null && !state.syncing) MaterialTheme.colorScheme.error else Color.Unspecified)
+    }
+}
+
 /** Desktop sidebar: a floating glass panel — inset from the window edge, real backdrop blur + frost. */
 @Composable
-private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit, dark: Boolean, onToggleTheme: () -> Unit) {
+private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) -> Unit, onNewTrade: () -> Unit, onImport: () -> Unit, dark: Boolean, onToggleTheme: () -> Unit, syncEnabled: Boolean, syncState: SyncState, onSync: () -> Unit, displayName: String, onOpenSettings: () -> Unit) {
     val tc = LocalTradeColors.current
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -505,23 +587,30 @@ private fun Sidebar(hazeState: HazeState, current: Screen, onSelect: (Screen) ->
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) { Text("Import statement") }
 
-        // Account chip
+        if (syncEnabled) SyncButton(syncState, onSync, Modifier.fillMaxWidth())
+
+        // Account chip — name + initials from the local profile; tapping it (not the theme toggle) opens Settings.
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Box(
-                modifier = Modifier.size(32.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
-                contentAlignment = Alignment.Center,
+            Row(
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(Radii.md)).clickable(onClick = onOpenSettings).padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("KS", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text("K. Siwatt", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text("Bangkok · USD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(
+                    modifier = Modifier.size(32.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(initials(displayName), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(displayName.ifBlank { "Set your name" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text("Bangkok · USD", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             ThemeToggleButton(dark, onToggleTheme)
         }

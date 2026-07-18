@@ -6,12 +6,18 @@ import com.tradingtail.data.remote.ExecutionRow
 import com.tradingtail.data.remote.NoteRow
 import com.tradingtail.data.remote.toEntity
 import com.tradingtail.data.remote.toRow
+import com.tradingtail.common.nowMillis
 import com.tradingtail.data.repository.ExecutionRepository
 import com.tradingtail.data.repository.TradeNoteRepository
 import com.tradingtail.domain.usecase.RebuildTradesForSymbol
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The one place local SQLite and the Supabase mirror reconcile. It syncs only the durable, user-owned
@@ -32,25 +38,37 @@ class SyncManager(
     private val noteRepo: TradeNoteRepository,
     private val rebuild: RebuildTradesForSymbol,
 ) {
-    /** Pull remote, apply what's newer, push what's newer locally, re-derive touched symbols. One round trip each way. */
-    suspend fun syncOnce() {
-        syncExecutions()
-        syncNotes()
+    // Serializes the manual Sync button against the 20s poll — two overlapping passes would still be
+    // correct (upserts are idempotent), just wasteful and confusing in the UI.
+    private val mutex = Mutex()
+    private val _state = MutableStateFlow(SyncState())
+    /** Observable status for the UI: the Sync button's spinner, and "last synced" / error text. */
+    val state: StateFlow<SyncState> = _state.asStateFlow()
+
+    /**
+     * One pull+push both ways, then re-derive touched symbols. Serialized, and errors are captured
+     * into [state] rather than thrown: sync is best-effort (local-first), so a dropped network is a
+     * non-event that both the poll and the button surface the same way.
+     */
+    suspend fun syncOnce() = mutex.withLock {
+        _state.value = _state.value.copy(syncing = true, error = null)
+        try {
+            syncExecutions()
+            syncNotes()
+            _state.value = SyncState(syncing = false, lastSyncedAt = nowMillis(), error = null)
+        } catch (e: Exception) {
+            _state.value = _state.value.copy(syncing = false, error = e.message ?: "Sync failed")
+        }
     }
 
     /**
      * ponytail: poll, not push. A 20s pull+push covers two-way sync for one person hopping between
      * two devices without any websocket lifecycle. Realtime (instant, event-driven) is the upgrade —
-     * it slots in beside this without touching the reconcile below. Errors are swallowed and retried:
-     * local-first means a dropped network is a non-event, not a crash.
+     * it slots in beside this without touching the reconcile below.
      */
     suspend fun runPeriodic(intervalMs: Long = 20_000L) {
         while (true) {
-            try {
-                syncOnce()
-            } catch (e: Exception) {
-                println("Sync skipped (will retry): ${e.message}")
-            }
+            syncOnce()
             delay(intervalMs)
         }
     }
@@ -92,6 +110,9 @@ class SyncManager(
         fun noteKey(n: TradeNoteEntity) = Triple(n.symbol, n.entryTs, n.exitTs)
     }
 }
+
+/** Observable sync status for the UI (manual Sync button + "last synced" caption). */
+data class SyncState(val syncing: Boolean = false, val lastSyncedAt: Long? = null, val error: String? = null)
 
 /** What a reconcile pass decided: rows to write into local SQLite, and rows to push to the remote. */
 data class Reconciliation<T>(val toApplyLocally: List<T>, val toPush: List<T>)

@@ -1,6 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -67,18 +66,9 @@ dependencies {
     add("kspDesktop", libs.androidx.room.compiler)
 }
 
-// Supabase credentials for the Android build, from the gitignored root local.properties (keys
-// `supabase.url` / `supabase.anonKey`). Baked into BuildConfig; empty when unset → sync stays off.
-val syncProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}
-
 android {
     namespace = "com.tradingtail"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    buildFeatures { buildConfig = true }
 
     defaultConfig {
         applicationId = "com.tradingtail"
@@ -86,8 +76,6 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "SUPABASE_URL", "\"${syncProps.getProperty("supabase.url", "")}\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${syncProps.getProperty("supabase.anonKey", "")}\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
