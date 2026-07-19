@@ -55,8 +55,6 @@ import com.tradingtail.common.BackHandler
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.bigDecimal
 import com.tradingtail.common.bkkDate
-import com.tradingtail.common.formatBangkok
-import com.tradingtail.common.nowMillis
 import com.tradingtail.common.parseBangkok
 import com.tradingtail.data.local.entity.Direction
 import com.tradingtail.domain.usecase.RecordQuickTrade
@@ -101,44 +99,17 @@ fun QuickTradeEntryScreen(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
-    // rememberSaveable, not remember: these eight fields are hand-typed money, entered one-handed right
-    // after a trade closes. `remember` lost the lot on an Activity recreation (rotation, a system font
-    // change, the process being trimmed while the user checked their broker app). Saveable survives all
-    // of it via the instance-state Bundle. The Strings are the source of truth — parsing happens once,
-    // at submit, so a half-typed "15." is a legal intermediate state rather than a parse error.
-    var symbol by rememberSaveable { mutableStateOf("") }
-    var quantity by rememberSaveable { mutableStateOf("") }
-    var entryPrice by rememberSaveable { mutableStateOf("") }
-    var exitPrice by rememberSaveable { mutableStateOf("") }
-    // Both default to now. The entry field used to default to now − 1h — a guessed hour that flowed
-    // straight into Performance By Hour Of Day, avgHoldMillis, and both duration reports, making four
-    // report sections quietly wrong. A wrong-but-plausible default is worse than an obvious one: it
-    // goes unchallenged. `now` is at least honestly the moment you logged it, and it's one edit away.
-    var entryTs by rememberSaveable { mutableStateOf(formatBangkok(nowMillis())) }
-    var exitTs by rememberSaveable { mutableStateOf(formatBangkok(nowMillis())) }
-    var entryFees by rememberSaveable { mutableStateOf("") }
-    var exitFees by rememberSaveable { mutableStateOf("") }
-
-    var symbolErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var qtyErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var entryErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var exitErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var entryTsErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var exitTsErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var entryFeesErr by rememberSaveable { mutableStateOf<String?>(null) }
-    var exitFeesErr by rememberSaveable { mutableStateOf<String?>(null) }
+    // rememberSaveable with the form's own Saver: the fields are hand-typed money, entered one-handed
+    // right after a trade closes, and plain `remember` lost the lot on an Activity recreation. State
+    // and validation live in [QuickTradeForm]; this composable is layout + effects only.
+    val form = rememberSaveable(saver = QuickTradeForm.Saver) { QuickTradeForm() }
     var submitting by remember { mutableStateOf(false) } // in-flight only; never restored mid-write
     var status by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmDiscard by rememberSaveable { mutableStateOf(false) }
 
-    // "Dirty" = anything the user actually typed. The prefilled timestamps don't count: leaving an
-    // untouched form must not cost a confirmation.
-    val dirty = symbol.isNotBlank() || quantity.isNotBlank() || entryPrice.isNotBlank() ||
-        exitPrice.isNotBlank() || entryFees.isNotBlank() || exitFees.isNotBlank()
-
     // Back exits the form, but never silently drops typed money — that was the app's worst bug: an
     // outside tap on the old Dialog discarded all eight fields with no confirmation and no recovery.
-    BackHandler(enabled = true) { if (dirty) confirmDiscard = true else onBack() }
+    BackHandler(enabled = true) { if (form.dirty) confirmDiscard = true else onBack() }
 
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -156,39 +127,20 @@ fun QuickTradeEntryScreen(
     // Hoisted so both the button and the keyboard's Done key run the same path — two ways to submit
     // must not be two implementations of submitting.
     val submit: () -> Unit = {
-        symbolErr = if (symbol.isBlank()) "Required" else null
-        qtyErr = numError(quantity)
-        entryErr = numError(entryPrice)
-        exitErr = numError(exitPrice)
-        entryTsErr = dateError(entryTs)
-        exitTsErr = dateError(exitTs)
-        entryFeesErr = feeError(entryFees)
-        exitFeesErr = feeError(exitFees)
-        // Relational check the per-field validators structurally can't make: each field is fine on its
-        // own, and the pair is still nonsense. RecordQuickTrade enforces this too (that's the gate all
-        // paths route through, CSV included) — this only puts the message on the field that's wrong,
-        // instead of surfacing raw exception text at the bottom of the form.
-        if (entryTsErr == null && exitTsErr == null && parseBangkok(exitTs.trim()) < parseBangkok(entryTs.trim())) {
-            exitTsErr = "Exit can't be before entry"
-        }
-        val valid = listOf(
-            symbolErr, qtyErr, entryErr, exitErr,
-            entryTsErr, exitTsErr, entryFeesErr, exitFeesErr,
-        ).all { it == null }
-        if (valid) {
+        if (form.validate()) {
             submitting = true
             scope.launch {
-                status = vm.submit(symbol, quantity, entryPrice, exitPrice, entryTs, exitTs, entryFees, exitFees)
+                status = vm.submit(form.symbol, form.quantity, form.entryPrice, form.exitPrice, form.entryTs, form.exitTs, form.entryFees, form.exitFees)
                     .fold(onSuccess = { onSaved(); null }, onFailure = { it.message ?: "Invalid input" })
                 submitting = false
             }
         } else {
             // Scroll the first failing field (top-to-bottom) into view, not always the top.
             val target = when {
-                symbolErr != null -> symbolBiv
-                qtyErr != null -> qtyBiv
-                entryErr != null || entryTsErr != null -> entryRowBiv
-                exitErr != null || exitTsErr != null -> exitRowBiv
+                form.symbolErr != null -> symbolBiv
+                form.qtyErr != null -> qtyBiv
+                form.entryErr != null || form.entryTsErr != null -> entryRowBiv
+                form.exitErr != null || form.exitTsErr != null -> exitRowBiv
                 else -> feesRowBiv
             }
             scope.launch { target.bringIntoView() }
@@ -211,7 +163,7 @@ fun QuickTradeEntryScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("New trade", style = MaterialTheme.typography.titleLarge)
-            IconButton(onClick = { if (dirty) confirmDiscard = true else onBack() }) {
+            IconButton(onClick = { if (form.dirty) confirmDiscard = true else onBack() }) {
                 Icon(Icons.Filled.Close, contentDescription = "Close")
             }
         }
@@ -225,33 +177,33 @@ fun QuickTradeEntryScreen(
             // ponytail: long-only (v1) — direction is always LONG, so no direction picker. Single quantity:
             // a quick trade is a full round-trip (entry qty == exit qty).
             Field(
-                symbol, { symbol = it }, "Symbol",
+                form.symbol, { form.symbol = it }, "Symbol",
                 modifier = Modifier.fillMaxWidth().bringIntoViewRequester(symbolBiv),
-                error = symbolErr, capitalizeWords = true, focusRequester = symbolFocus,
+                error = form.symbolErr, capitalizeWords = true, focusRequester = symbolFocus,
             )
             Field(
-                quantity, { quantity = it }, "Quantity",
+                form.quantity, { form.quantity = it }, "Quantity",
                 modifier = Modifier.fillMaxWidth().bringIntoViewRequester(qtyBiv),
-                keyboardType = KeyboardType.Decimal, error = qtyErr,
+                keyboardType = KeyboardType.Decimal, error = form.qtyErr,
             )
             PriceTimeRow(
                 compact, Modifier.bringIntoViewRequester(entryRowBiv),
-                { Field(entryPrice, { entryPrice = it }, "Entry price", it, KeyboardType.Decimal, entryErr) },
-                { DateTimeField(entryTs, { entryTs = it }, "Entry time", it, entryTsErr) },
+                { Field(form.entryPrice, { form.entryPrice = it }, "Entry price", it, KeyboardType.Decimal, form.entryErr) },
+                { DateTimeField(form.entryTs, { form.entryTs = it }, "Entry time", it, form.entryTsErr) },
             )
             PriceTimeRow(
                 compact, Modifier.bringIntoViewRequester(exitRowBiv),
-                { Field(exitPrice, { exitPrice = it }, "Exit price", it, KeyboardType.Decimal, exitErr) },
-                { DateTimeField(exitTs, { exitTs = it }, "Exit time", it, exitTsErr) },
+                { Field(form.exitPrice, { form.exitPrice = it }, "Exit price", it, KeyboardType.Decimal, form.exitErr) },
+                { DateTimeField(form.exitTs, { form.exitTs = it }, "Exit time", it, form.exitTsErr) },
             )
             Row(
                 modifier = Modifier.bringIntoViewRequester(feesRowBiv),
                 horizontalArrangement = Arrangement.spacedBy(if (compact) Space.xs else Space.sm),
             ) {
-                Field(entryFees, { entryFees = it }, "Entry fee", Modifier.weight(1f), KeyboardType.Decimal, entryFeesErr)
+                Field(form.entryFees, { form.entryFees = it }, "Entry fee", Modifier.weight(1f), KeyboardType.Decimal, form.entryFeesErr)
                 Field(
-                    exitFees, { exitFees = it }, "Exit fee", Modifier.weight(1f), KeyboardType.Decimal,
-                    exitFeesErr, imeAction = ImeAction.Done, onDone = submit,
+                    form.exitFees, { form.exitFees = it }, "Exit fee", Modifier.weight(1f), KeyboardType.Decimal,
+                    form.exitFeesErr, imeAction = ImeAction.Done, onDone = submit,
                 )
             }
 
@@ -286,7 +238,7 @@ fun QuickTradeEntryScreen(
         AlertDialog(
             onDismissRequest = { confirmDiscard = false },
             title = { Text("Discard this trade?") },
-            text = { Text("You've typed details for ${symbol.ifBlank { "this trade" }}. Closing now loses them.") },
+            text = { Text("You've typed details for ${form.symbol.ifBlank { "this trade" }}. Closing now loses them.") },
             confirmButton = {
                 TextButton(
                     onClick = { confirmDiscard = false; onBack() },
@@ -411,20 +363,5 @@ internal fun DateTimeField(value: String, onChange: (String) -> Unit, label: Str
         )
     }
 }
-
-internal fun numError(s: String): String? {
-    val v = runCatching { bigDecimal(s.trim()) }.getOrNull() ?: return "Enter a number"
-    return if (v > ZERO) null else "Must be > 0"
-}
-
-// Fees are optional (blank = 0) and, unlike price/quantity, may legitimately be 0 — so ≥ 0, not > 0.
-internal fun feeError(s: String): String? {
-    if (s.isBlank()) return null
-    val v = runCatching { bigDecimal(s.trim()) }.getOrNull() ?: return "Enter a number"
-    return if (v >= ZERO) null else "Must be ≥ 0"
-}
-
-private fun dateError(s: String): String? =
-    if (runCatching { parseBangkok(s) }.isSuccess) null else "Invalid date/time — use YYYY-MM-DD HH:MM"
 
 private fun pad(n: Int): String = n.toString().padStart(2, '0')
