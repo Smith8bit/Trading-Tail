@@ -24,8 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tradingtail.common.BigDecimal
@@ -118,8 +116,6 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
             val dates = remember(filtered) { exitDateLabels(filtered) }
             val vol = remember(execWindow) { totalVolume(execWindow) }
             val days = remember(execWindow) { tradingDays(execWindow) }
-            val pfFrac = pf?.let { (it / (it + 1)).toFloat().coerceIn(0f, 1f) } ?: 1f
-            val pfText = pf?.let { "${(it * 100).toInt() / 100.0}" } ?: "∞"
 
             WeekStrip(remember(trades, now) { weekStrip(trades, now) }, remember(now) { weekRangeLabel(now) })
 
@@ -151,12 +147,7 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
                 // stacking them here only bought 18 sibling cards on a 411dp screen saying what
                 // Reports already says. Redundancy cut, not information: nothing here is unreachable.
                 StatsCard(streaks.maxWins, streaks.maxLosses, totalTrades, avgDaily, fees, Modifier.fillMaxWidth())
-                GaugeCard(
-                    "Profit Factor", pfText, pfFrac,
-                    fg = if (pf == null || pf >= 1.0) MaterialTheme.colorScheme.primary else tc.loss,
-                    track = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = gaugeMod,
-                )
+                ProfitFactorGauge(pf, gaugeMod)
             } else {
                 Band(compact) {
                     BarChartCard("Win %", remember(filtered) { winRateByDay(filtered) }, diverging = false, barColor = tc.gain, modifier = two, fillHeight = fh)
@@ -174,14 +165,7 @@ fun DashboardScreen(vm: AnalyticsViewModel, modifier: Modifier = Modifier) {
                     PairCell(
                         compact, one,
                         { StatsCard(streaks.maxWins, streaks.maxLosses, totalTrades, avgDaily, fees, fill) },
-                        {
-                            GaugeCard(
-                                "Profit Factor", pfText, pfFrac,
-                                fg = if (pf == null || pf >= 1.0) MaterialTheme.colorScheme.primary else tc.loss,
-                                track = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = gaugeMod,
-                            )
-                        },
+                        { ProfitFactorGauge(pf, gaugeMod) },
                     )
                 }
                 Band(compact) {
@@ -228,30 +212,29 @@ private fun PairCell(compact: Boolean, cell: Modifier, top: @Composable () -> Un
     }
 }
 
+/** Profit Factor half-donut. ∞ (no losers) fills the arc; a factor below 1 turns it loss-red. */
+@Composable
+private fun ProfitFactorGauge(pf: Double?, modifier: Modifier) {
+    GaugeCard(
+        "Profit Factor",
+        valueText = pf?.let { "${(it * 100).toInt() / 100.0}" } ?: "∞",
+        fraction = pf?.let { (it / (it + 1)).toFloat().coerceIn(0f, 1f) } ?: 1f,
+        fg = if (pf == null || pf >= 1.0) MaterialTheme.colorScheme.primary else LocalTradeColors.current.loss,
+        track = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier,
+    )
+}
+
 /** Streak/count figures + fees in one dense tile — five small numbers don't earn five cards. */
 @Composable
 private fun StatsCard(maxWins: Int, maxLosses: Int, trades: Int, avgDaily: String, fees: BigDecimal, modifier: Modifier = Modifier) {
     SectionCard("Streaks & Activity", modifier, fill = true) {
         Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-            StatRow("Max consecutive wins", maxWins.toString())
-            StatRow("Max consecutive losses", maxLosses.toString())
-            StatRow("Total trades", trades.toString())
-            StatRow("Average daily volume", avgDaily)
-            StatRow("Total fees", formatMoney(fees), pnlColor(fees))
+            LabeledFigureRow("Max consecutive wins", maxWins.toString())
+            LabeledFigureRow("Max consecutive losses", maxLosses.toString())
+            LabeledFigureRow("Total trades", trades.toString())
+            LabeledFigureRow("Average daily volume", avgDaily)
+            LabeledFigureRow("Total fees", formatMoney(fees), pnlColor(fees))
         }
-    }
-}
-
-@Composable
-private fun StatRow(label: String, value: String, valueColor: Color = Color.Unspecified) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            value,
-            color = valueColor,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyMedium,
-        )
     }
 }

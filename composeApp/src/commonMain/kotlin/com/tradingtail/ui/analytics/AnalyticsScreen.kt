@@ -574,13 +574,7 @@ private fun StatsCard(trades: List<TradeEntity>, executions: List<ExecutionEntit
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text("Stats", style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
-            stats.chunked(cols).forEachIndexed { i, row ->
-                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    for (s in row) StatCell(s, Modifier.weight(1f))
-                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
+            StatGrid(stats, cols)
         }
     }
 }
@@ -601,6 +595,18 @@ private fun StatColumn(title: String, dot: Color, trades: List<TradeEntity>, exe
                     Text(s.value, color = s.color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+        }
+    }
+}
+
+/** Hairline-separated grid of [StatCell]s, [cols] per row; a ragged last row is padded with spacers. */
+@Composable
+private fun StatGrid(stats: List<Stat>, cols: Int) {
+    stats.chunked(cols).forEachIndexed { i, row ->
+        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            for (s in row) StatCell(s, Modifier.weight(1f))
+            repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -845,18 +851,11 @@ private fun DrawdownStatsCard(s: DrawdownStats) {
         Stat("Average Number of Days in Drawdown", ri(s.avgDays), plain),
         Stat("Number of Days in Drawdown", s.totalDays.toString(), plain),
         Stat("Average Trades in Drawdown", ri(s.avgTrades), plain),
-        Stat("", "", plain),
-    ).let { if (cols == 1) it.filter { st -> st.label.isNotEmpty() } else it }
+    )
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text("Statistics", style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.md))
-            stats.chunked(cols).forEachIndexed { i, row ->
-                if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    for (st in row) StatCell(st, Modifier.weight(1f))
-                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
+            StatGrid(stats, cols)
         }
     }
 }

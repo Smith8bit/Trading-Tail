@@ -1061,18 +1061,23 @@ internal fun HoldTimeCard(winnerMs: Long?, loserMs: Long?, modifier: Modifier = 
     }
 }
 
+/** Label left, mono-bold figure right — the shared row shape of every dense stat tile. */
 @Composable
-private fun DurationRow(label: String, ms: Long?) {
+internal fun LabeledFigureRow(label: String, value: String, valueColor: Color = Color.Unspecified) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            ms?.let { formatDuration(it) } ?: "—",
+            value,
+            color = valueColor,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
+
+@Composable
+private fun DurationRow(label: String, ms: Long?) = LabeledFigureRow(label, ms?.let { formatDuration(it) } ?: "—")
 
 /** Winners-vs-losers donut (Canvas arcs) with the win rate in the hole. */
 @Composable
@@ -1149,18 +1154,7 @@ internal fun BestWorstCard(bw: BestWorst, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun FigureRow(label: String, value: BigDecimal) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            formatMoney(value),
-            color = pnlColor(value),
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
-}
+private fun FigureRow(label: String, value: BigDecimal) = LabeledFigureRow(label, formatMoney(value), pnlColor(value))
 
 /**
  * TraderVue-style performance row: label on the left, $ value + % on the right, and a thin
