@@ -1,6 +1,5 @@
 package com.tradingtail.ui.analytics
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -769,21 +767,13 @@ private fun WinLossDaysView(trades: List<TradeEntity>, executions: List<Executio
 private fun DaysDonut(winningDays: Int, losingDays: Int) {
     val tc = LocalTradeColors.current
     val total = winningDays + losingDays
-    // No data ≠ all losses: the base ring is only Loss Red once there's a day to classify.
-    val ring = if (total > 0) tc.loss else MaterialTheme.colorScheme.surfaceVariant
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(Space.lg),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Canvas(modifier = Modifier.size(72.dp)) {
-                    val stroke = 12.dp.toPx()
-                    drawArc(ring, -90f, 360f, false, style = Stroke(stroke))
-                    if (total > 0) drawArc(tc.gain, -90f, 360f * winningDays / total, false, style = Stroke(stroke))
-                }
-            }
+            RatioRing(winningDays, total)
             Column(modifier = Modifier.padding(start = Space.lg), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 LegendRow(tc.gain, "Winning days", winningDays)
                 LegendRow(tc.loss, "Losing days", losingDays)

@@ -1079,13 +1079,26 @@ internal fun LabeledFigureRow(label: String, value: String, valueColor: Color = 
 @Composable
 private fun DurationRow(label: String, ms: Long?) = LabeledFigureRow(label, ms?.let { formatDuration(it) } ?: "—")
 
-/** Winners-vs-losers donut (Canvas arcs) with the win rate in the hole. */
+/**
+ * Share-of-total donut ring: [part] sweeps gain-green over a loss-red remainder. No data ≠ all
+ * losses — the ring stays neutral until there's something to classify.
+ */
+@Composable
+internal fun RatioRing(part: Int, total: Int) {
+    val colors = LocalTradeColors.current
+    val ring = if (total > 0) colors.loss else MaterialTheme.colorScheme.surfaceVariant
+    Canvas(modifier = Modifier.size(72.dp)) {
+        val stroke = 12.dp.toPx()
+        drawArc(ring, -90f, 360f, false, style = Stroke(stroke))
+        if (total > 0) drawArc(colors.gain, -90f, 360f * part / total, false, style = Stroke(stroke))
+    }
+}
+
+/** Winners-vs-losers donut with the win rate in the hole. */
 @Composable
 internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, title: String = "Winning vs Losing Trades") {
     val colors = LocalTradeColors.current
     val decided = win.wins + win.losses
-    // No data ≠ all losses: a neutral ring + "—" until there's a decided trade to classify.
-    val ring = if (decided > 0) colors.loss else MaterialTheme.colorScheme.surfaceVariant
     GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1095,21 +1108,7 @@ internal fun WinnersCard(win: WinRateSummary, modifier: Modifier = Modifier, tit
                 horizontalArrangement = Arrangement.spacedBy(Space.md),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Canvas(modifier = Modifier.size(72.dp)) {
-                        val stroke = 12.dp.toPx()
-                        drawArc(
-                            color = ring,
-                            startAngle = -90f, sweepAngle = 360f, useCenter = false,
-                            style = Stroke(width = stroke),
-                        )
-                        if (decided > 0) drawArc(
-                            color = colors.gain,
-                            startAngle = -90f,
-                            sweepAngle = 360f * win.wins / decided,
-                            useCenter = false,
-                            style = Stroke(width = stroke),
-                        )
-                    }
+                    RatioRing(win.wins, decided)
                     Text(
                         if (decided > 0) "${(win.winRate * 100).roundToInt()}%" else "—",
                         fontFamily = FontFamily.Monospace,
