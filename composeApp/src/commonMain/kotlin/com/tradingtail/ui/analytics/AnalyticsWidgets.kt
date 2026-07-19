@@ -522,6 +522,73 @@ private fun maxXLabels(plotW: Float, labelW: Float): Int =
     if (labelW <= 0f) 0 else (plotW / (labelW * 1.4f)).toInt()
 
 /**
+ * Shared geometry of a vertical chart's plot area — the [Axis] gutter, the label band below, and the
+ * value→y / index→x mappings. Every vertical chart used to re-declare this block inline, and the
+ * hover hit-tests ([barIndexAt]/[lineIndexAt]) assume the same gutter — one definition means the
+ * geometry can't drift per chart. Constructed from plain floats so the mapping is unit-testable.
+ */
+internal class ChartFrame(
+    width: Float,
+    height: Float,
+    val leftPad: Float,
+    bottomPad: Float,
+    val ticks: List<Float>,
+    private val n: Int,
+) {
+    val plotW = width - leftPad
+    val plotH = height - bottomPad
+    private val minV = ticks.first()
+    private val range = (ticks.last() - minV).let { if (it == 0f) 1f else it }
+
+    /** y of a value: ticks.first() → plotH (bottom edge), ticks.last() → 0 (top edge). */
+    fun py(v: Float) = plotH * (1f - (v - minV) / range)
+
+    /** x of sample [i] of the n points, evenly spread across the plot after the gutter. */
+    fun px(i: Int) = leftPad + plotW * i / (n - 1)
+}
+
+private fun DrawScope.chartFrame(axis: Axis, xLabel: String, n: Int) =
+    ChartFrame(size.width, size.height, axis.gutter, bottomPadOf(xLabel).toPx(), axis.ticks, n)
+
+/** Horizontal gridline + left tick label per axis tick — the value axis every vertical chart draws. */
+private fun DrawScope.drawValueAxis(f: ChartFrame, money: Boolean, measurer: TextMeasurer, grid: Color, labelColor: Color) {
+    val hair = 1.dp.toPx()
+    for (t in f.ticks) {
+        val y = f.py(t)
+        drawLine(grid.copy(alpha = 0.35f), Offset(f.leftPad, y), Offset(size.width, y), strokeWidth = hair)
+        val lay = measurer.measure(axisLabel(t, money), TextStyle(fontSize = FontSize.sm, color = labelColor))
+        drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
+    }
+}
+
+/** The emphasized zero line. Callers pick the moment: over bars, under line paths. */
+private fun DrawScope.drawZeroLine(f: ChartFrame, color: Color) {
+    drawLine(color, Offset(f.leftPad, f.py(0f)), Offset(size.width, f.py(0f)), strokeWidth = 1.5.dp.toPx())
+}
+
+/** Evenly-spread sample of up to [cap] of [n] indices whose labels fit [plotW]; empty when < 2 fit. */
+private fun sampledIndices(n: Int, cap: Int, plotW: Float, labelW: Float): List<Int> =
+    minOf(cap, n, maxXLabels(plotW, labelW)).let { xn ->
+        if (xn < 2) emptyList() else (0 until xn).map { it * (n - 1) / (xn - 1) }
+    }
+
+/** X-axis labels at [indices], centered on [xOf]'s position and clamped inside the plot. */
+private fun DrawScope.drawXLabels(
+    f: ChartFrame,
+    indices: List<Int>,
+    label: (Int) -> String,
+    xOf: (Int) -> Float,
+    measurer: TextMeasurer,
+    labelColor: Color,
+) {
+    for (i in indices) {
+        val lay = measurer.measure(label(i), TextStyle(fontSize = FontSize.sm, color = labelColor))
+        val x = (xOf(i) - lay.size.width / 2f).coerceIn(f.leftPad, size.width - lay.size.width)
+        drawText(lay, topLeft = Offset(x, f.plotH + LABEL_GAP.toPx()))
+    }
+}
+
+/**
  * Wraps a chart canvas so hovering the mouse over a bar/point floats a tooltip describing it. [indexAt]
  * maps the pointer position to a data index (-1 = nothing under the cursor); [tooltip] renders it.
  * ponytail: hover is desktop-only — Android has no pointer-move, so this stays inert there (no tap sheet).
@@ -702,41 +769,24 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
         indexAt = { pos, sz -> lineIndexAt(pos, sz, series.size, axis.gutter) },
         tooltip = { i -> LineTooltip(dates.getOrElse(i) { "" }, series[i]) },
     ) { hoverIdx ->
-        val leftPad = axis.gutter // shared with the hover hit-test — drift here breaks tooltips
-        val bottomPad = bottomPadOf(xLabel).toPx()
-        val hair = 1.dp.toPx()
-        val axisStroke = 1.5.dp.toPx()
-        val plotW = size.width - leftPad
-        val plotH = size.height - bottomPad
         val n = series.size
-        val ticks = axis.ticks
-        val minV = ticks.first()
-        val maxV = ticks.last()
-        val range = (maxV - minV).let { if (it == 0f) 1f else it }
-        fun px(i: Int) = leftPad + plotW * i / (n - 1)
-        fun py(v: Float) = plotH * (1f - (v - minV) / range)
-
-        for (t in ticks) {
-            val y = py(t)
-            drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = hair)
-            val lay = measurer.measure(axisLabel(t, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
-            drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
-        }
-        drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = axisStroke)
+        val f = chartFrame(axis, xLabel, n) // same axis as the hover hit-test — the gutter can't drift
+        drawValueAxis(f, money = true, measurer = measurer, grid = grid, labelColor = labelColor)
+        drawZeroLine(f, grid)
 
         val path = Path().apply {
-            moveTo(px(0), py(series[0]))
-            for (i in 1 until n) lineTo(px(i), py(series[i]))
+            moveTo(f.px(0), f.py(series[0]))
+            for (i in 1 until n) lineTo(f.px(i), f.py(series[i]))
         }
         if (negColor == null) {
-            val base = if (fillToBottom) plotH else py(0f)
-            val fill = Path().apply { addPath(path); lineTo(px(n - 1), base); lineTo(px(0), base); close() }
+            val base = if (fillToBottom) f.plotH else f.py(0f)
+            val fill = Path().apply { addPath(path); lineTo(f.px(n - 1), base); lineTo(f.px(0), base); close() }
             drawPath(fill, color = line.copy(alpha = 0.16f))
             drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
         } else {
             // Sign-colored equity curve: fill/line to the zero line, [line] above it, [negColor] below.
-            val zeroY = py(0f)
-            val fill = Path().apply { addPath(path); lineTo(px(n - 1), zeroY); lineTo(px(0), zeroY); close() }
+            val zeroY = f.py(0f)
+            val fill = Path().apply { addPath(path); lineTo(f.px(n - 1), zeroY); lineTo(f.px(0), zeroY); close() }
             clipRect(top = 0f, bottom = zeroY) {
                 drawPath(fill, color = line.copy(alpha = 0.16f))
                 drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
@@ -748,21 +798,15 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
         }
 
         if (hoverIdx in 0 until n) {
-            val hx = px(hoverIdx); val hy = py(series[hoverIdx])
-            drawLine(grid, Offset(hx, 0f), Offset(hx, plotH), strokeWidth = hair)
+            val hx = f.px(hoverIdx); val hy = f.py(series[hoverIdx])
+            drawLine(grid, Offset(hx, 0f), Offset(hx, f.plotH), strokeWidth = 1.dp.toPx())
             drawCircle(dotRing, radius = 5.5.dp.toPx(), center = Offset(hx, hy))
             drawCircle(if (negColor != null && series[hoverIdx] < 0f) negColor else line, radius = 4.dp.toPx(), center = Offset(hx, hy))
         }
 
         val dateW = measurer.measure(dates.firstOrNull() ?: "", TextStyle(fontSize = FontSize.sm)).size.width
-        val xn = minOf(5, n, maxXLabels(plotW, dateW.toFloat()))
-        if (xn >= 2) for (k in 0 until xn) {
-            val i = k * (n - 1) / (xn - 1)
-            val lay = measurer.measure(dates.getOrElse(i) { "" }, TextStyle(fontSize = FontSize.sm, color = labelColor))
-            val x = (px(i) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
-            drawText(lay, topLeft = Offset(x, plotH + LABEL_GAP.toPx()))
-        }
-        drawAxisTitle(measurer, xLabel, labelColor, leftPad)
+        drawXLabels(f, sampledIndices(n, 5, f.plotW, dateW.toFloat()), { dates.getOrElse(it) { "" } }, f::px, measurer, labelColor)
+        drawAxisTitle(measurer, xLabel, labelColor, f.leftPad)
     }
 }
 
@@ -788,58 +832,32 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
                     indexAt = { pos, sz -> barIndexAt(pos, sz, points.size, axis.gutter) },
                     tooltip = { i -> BarTooltip(title, points[i], money = diverging) },
                 ) { hoverIdx ->
-                    val leftPad = axis.gutter // shared with the hover hit-test — drift here breaks tooltips
-                    val bottomPad = bottomPadOf(xLabel).toPx()
-                    val hair = 1.dp.toPx()
-                    val axisStroke = 1.5.dp.toPx()
-                    val plotW = size.width - leftPad
-                    val plotH = size.height - bottomPad
                     val n = points.size
+                    val f = chartFrame(axis, xLabel, n) // same axis as the hover hit-test — the gutter can't drift
                     val values = points.map { it.value }
-                    val ticks = axis.ticks
-                    val minV = ticks.first()
-                    val maxV = ticks.last()
-                    val range = (maxV - minV).let { if (it == 0f) 1f else it }
-                    fun py(v: Float) = plotH * (1f - (v - minV) / range)
-
-                    for (t in ticks) {
-                        val y = py(t)
-                        drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = hair)
-                        val lay = measurer.measure(axisLabel(t, diverging), TextStyle(fontSize = FontSize.sm, color = labelColor))
-                        drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
-                    }
-                    val zeroY = py(0f)
-                    val slot = plotW / n
+                    drawValueAxis(f, money = diverging, measurer = measurer, grid = grid, labelColor = labelColor)
+                    val slot = f.plotW / n
                     // ponytail: cap width so a 2–3 bar chart draws bars, not fat blocks.
                     val barW = minOf(slot * 0.6f, 48.dp.toPx())
+                    fun barX(i: Int) = f.leftPad + slot * (i + 0.5f)
+                    fun drawBar(i: Int, color: Color) {
+                        val top = f.py(maxOf(values[i], 0f))
+                        val bot = f.py(minOf(values[i], 0f))
+                        drawRect(color, topLeft = Offset(barX(i) - barW / 2f, minOf(top, bot)), size = androidx.compose.ui.geometry.Size(barW, kotlin.math.abs(bot - top).coerceAtLeast(1f)))
+                    }
                     for (i in 0 until n) {
                         val v = values[i]
-                        val cx = leftPad + slot * (i + 0.5f)
-                        val top = py(maxOf(v, 0f))
-                        val bot = py(minOf(v, 0f))
-                        val c = if (diverging) (if (v >= 0f) colors.gain else colors.loss) else barColor
-                        drawRect(color = c, topLeft = Offset(cx - barW / 2f, minOf(top, bot)), size = androidx.compose.ui.geometry.Size(barW, kotlin.math.abs(bot - top).coerceAtLeast(1f)))
+                        drawBar(i, if (diverging) (if (v >= 0f) colors.gain else colors.loss) else barColor)
                     }
-                    drawLine(grid, Offset(leftPad, zeroY), Offset(size.width, zeroY), strokeWidth = axisStroke)
+                    drawZeroLine(f, grid)
 
-                    if (hoverIdx in 0 until n) {
-                        val v = values[hoverIdx]
-                        val cx = leftPad + slot * (hoverIdx + 0.5f)
-                        val top = py(maxOf(v, 0f)); val bot = py(minOf(v, 0f))
-                        drawRect(hoverTint, topLeft = Offset(cx - barW / 2f, minOf(top, bot)), size = androidx.compose.ui.geometry.Size(barW, kotlin.math.abs(bot - top).coerceAtLeast(1f)))
-                    }
+                    if (hoverIdx in 0 until n) drawBar(hoverIdx, hoverTint)
 
                     // Every bar labeled (years/months) or evenly sampled to however many actually fit.
                     val labelW = measurer.measure(points[0].label, TextStyle(fontSize = FontSize.sm)).size.width
-                    val xIdx = if (labelEveryBar) (0 until n).toList()
-                        else minOf(6, n, maxXLabels(plotW, labelW.toFloat()))
-                            .let { xn -> if (xn < 2) emptyList() else (0 until xn).map { it * (n - 1) / (xn - 1) } }
-                    for (i in xIdx) {
-                        val lay = measurer.measure(points[i].label, TextStyle(fontSize = FontSize.sm, color = labelColor))
-                        val x = (leftPad + slot * (i + 0.5f) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
-                        drawText(lay, topLeft = Offset(x, plotH + LABEL_GAP.toPx()))
-                    }
-                    drawAxisTitle(measurer, xLabel, labelColor, leftPad)
+                    val xIdx = if (labelEveryBar) (0 until n).toList() else sampledIndices(n, 6, f.plotW, labelW.toFloat())
+                    drawXLabels(f, xIdx, { points[it].label }, ::barX, measurer, labelColor)
+                    drawAxisTitle(measurer, xLabel, labelColor, f.leftPad)
                 }
             }
         }
@@ -957,56 +975,33 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
                     indexAt = { pos, sz -> lineIndexAt(pos, sz, n, axis.gutter) },
                     tooltip = { i -> MultiLineTooltip(dates.getOrElse(i) { "" }, series, i) },
                 ) { hoverIdx ->
-                    val leftPad = axis.gutter // shared with the hover hit-test — drift here breaks tooltips
-                    val bottomPad = bottomPadOf(xLabel).toPx()
-                    val hair = 1.dp.toPx()
-                    val axisStroke = 1.5.dp.toPx()
-                    val plotW = size.width - leftPad
-                    val plotH = size.height - bottomPad
-                    val ticks = axis.ticks
-                    val minV = ticks.first()
-                    val maxV = ticks.last()
-                    val range = (maxV - minV).let { if (it == 0f) 1f else it }
-                    fun px(i: Int) = leftPad + plotW * i / (n - 1)
-                    fun py(v: Float) = plotH * (1f - (v - minV) / range)
-
-                    for (t in ticks) {
-                        val y = py(t)
-                        drawLine(grid.copy(alpha = 0.35f), Offset(leftPad, y), Offset(size.width, y), strokeWidth = hair)
-                        val lay = measurer.measure(axisLabel(t, money = true), TextStyle(fontSize = FontSize.sm, color = labelColor))
-                        drawText(lay, topLeft = Offset(0f, y - lay.size.height / 2f))
-                    }
-                    drawLine(grid, Offset(leftPad, py(0f)), Offset(size.width, py(0f)), strokeWidth = axisStroke)
+                    val f = chartFrame(axis, xLabel, n) // same axis as the hover hit-test — the gutter can't drift
+                    drawValueAxis(f, money = true, measurer = measurer, grid = grid, labelColor = labelColor)
+                    drawZeroLine(f, grid)
 
                     for (sp in series) {
                         val path = Path()
                         var started = false
                         for (i in 0 until n) {
                             val v = sp.values[i]
-                            if (v == null) { started = false } else if (!started) { path.moveTo(px(i), py(v)); started = true } else path.lineTo(px(i), py(v))
+                            if (v == null) { started = false } else if (!started) { path.moveTo(f.px(i), f.py(v)); started = true } else path.lineTo(f.px(i), f.py(v))
                         }
                         drawPath(path, sp.color, style = Stroke(width = 2.dp.toPx()))
                     }
 
                     if (hoverIdx in 0 until n) {
-                        val hx = px(hoverIdx)
-                        drawLine(grid, Offset(hx, 0f), Offset(hx, plotH), strokeWidth = hair)
+                        val hx = f.px(hoverIdx)
+                        drawLine(grid, Offset(hx, 0f), Offset(hx, f.plotH), strokeWidth = 1.dp.toPx())
                         for (sp in series) {
                             val v = sp.values.getOrNull(hoverIdx) ?: continue
-                            drawCircle(dotRing, radius = 5.dp.toPx(), center = Offset(hx, py(v)))
-                            drawCircle(sp.color, radius = 3.5.dp.toPx(), center = Offset(hx, py(v)))
+                            drawCircle(dotRing, radius = 5.dp.toPx(), center = Offset(hx, f.py(v)))
+                            drawCircle(sp.color, radius = 3.5.dp.toPx(), center = Offset(hx, f.py(v)))
                         }
                     }
 
                     val dateW = measurer.measure(dates.firstOrNull() ?: "", TextStyle(fontSize = FontSize.sm)).size.width
-                    val xn = minOf(5, n, maxXLabels(plotW, dateW.toFloat()))
-                    if (xn >= 2) for (k in 0 until xn) {
-                        val i = k * (n - 1) / (xn - 1)
-                        val lay = measurer.measure(dates.getOrElse(i) { "" }, TextStyle(fontSize = FontSize.sm, color = labelColor))
-                        val x = (px(i) - lay.size.width / 2f).coerceIn(leftPad, size.width - lay.size.width)
-                        drawText(lay, topLeft = Offset(x, plotH + LABEL_GAP.toPx()))
-                    }
-                    drawAxisTitle(measurer, xLabel, labelColor, leftPad)
+                    drawXLabels(f, sampledIndices(n, 5, f.plotW, dateW.toFloat()), { dates.getOrElse(it) { "" } }, f::px, measurer, labelColor)
+                    drawAxisTitle(measurer, xLabel, labelColor, f.leftPad)
                 }
             }
         }

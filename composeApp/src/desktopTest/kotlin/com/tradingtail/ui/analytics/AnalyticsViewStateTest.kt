@@ -283,4 +283,17 @@ class AnalyticsViewStateTest {
         assertEquals(listOf("01:00"), hourWindow(listOf(hp(1, "7.00"))).map { it.label })
         assertEquals(emptyList(), hourWindow(emptyList()))          // no trades → empty
     }
+
+    @Test
+    fun chartFrameMapsTickBoundsToPlotEdgesAndSpreadsSamples() {
+        // 340px wide with a 40px gutter, 200px tall with a 28px label band, ticks −10..10, 5 samples.
+        val f = ChartFrame(width = 340f, height = 200f, leftPad = 40f, bottomPad = 28f, ticks = listOf(-10f, 0f, 10f), n = 5)
+        assertEquals(172f, f.py(-10f))     // ticks.first() → plot bottom (plotH)
+        assertEquals(0f, f.py(10f))        // ticks.last() → plot top
+        assertEquals(86f, f.py(0f))        // zero line at the vertical middle of a symmetric axis
+        assertEquals(40f, f.px(0))         // first sample sits on the gutter edge
+        assertEquals(340f, f.px(4))        // last sample sits on the right edge
+        // Flat axis (all ticks equal) must not divide by zero.
+        assertEquals(172f, ChartFrame(340f, 200f, 40f, 28f, listOf(0f, 0f), 2).py(0f))
+    }
 }
