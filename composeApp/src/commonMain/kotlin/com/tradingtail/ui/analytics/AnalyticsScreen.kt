@@ -1,5 +1,7 @@
 package com.tradingtail.ui.analytics
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.tradingtail.common.BkkDate
 import com.tradingtail.common.bkkDate
 import com.tradingtail.common.nowMillis
+import com.tradingtail.common.reducedMotion
 import com.tradingtail.domain.usecase.CalculatePnlByHour
 import com.tradingtail.domain.usecase.CalculateWinRate
 import com.tradingtail.ui.theme.FAB_CLEARANCE
@@ -101,13 +104,16 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
         // blue labels + hairline sat illegibly on the aurora.) Sub-switchers inside the sheet drop to
         // a segmented control — a step down the hierarchy.
         TabSheet(tabs, tab, onSelect = { tab = it }, modifier = Modifier.fillMaxSize().padding(bottom = Space.md)) {
+        // Crossfade the panel contents so switching reports reads as one sheet swapping its page, not a
+        // hard cut — and the new tab's charts draw themselves on as they fade in. Own scroll per tab.
+        Crossfade(targetState = tab, animationSpec = tween(if (reducedMotion()) 0 else 220), label = "reportTab") { t ->
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(start = Space.md, end = Space.md, top = Space.md)
                 .padding(bottom = if (compact) FAB_CLEARANCE else Space.md),
             verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
-            when (tab) {
+            when (t) {
                 0 -> {
                     // ponytail: skipped the cosmetic P&L Type / View mode / Report type dropdowns — v1 is
                     // gross-only / $-value / aggregate, so they'd be dead chrome. Add if Net/% ever ships.
@@ -129,6 +135,7 @@ fun AnalyticsScreen(vm: AnalyticsViewModel, onOpenCalendar: () -> Unit, modifier
                 2 -> WinLossDaysView(trades, executions)
                 3 -> DrawdownView(trades)
             }
+        }
         }
         }
         }

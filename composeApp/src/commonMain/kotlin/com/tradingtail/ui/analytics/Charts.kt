@@ -1,5 +1,9 @@
 package com.tradingtail.ui.analytics
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import com.tradingtail.common.BigDecimal
 import com.tradingtail.common.ZERO
 import com.tradingtail.common.formatMoney
+import com.tradingtail.common.reducedMotion
 import com.tradingtail.ui.theme.FontSize
 import com.tradingtail.ui.theme.GlassCard
 import com.tradingtail.ui.theme.LocalTradeColors
@@ -62,6 +68,39 @@ import kotlin.math.roundToInt
 // Canvas charts: the shared Axis/ChartFrame machinery, hover/tooltip layer, and every chart
 // card (line / bar / h-bar / multi-line / gauge). Split from AnalyticsWidgets.kt (2026-07-19).
 // ---------------------------------------------------------------------------------------------
+
+// --- Draw-on reveal -----------------------------------------------------------------------------
+// The figures are the message and stay instant + exact (no gamified count-up); only their geometric
+// forms draw on — bars grow from the zero axis, lines sweep along their time axis, arcs fill. One
+// linear 0→1 progress per chart, replayed whenever the data changes (first load AND every date-filter
+// change), eased per-shape at the call site. Snaps to done under the OS "reduce motion" setting.
+
+/** ease-out-quart — confident deceleration, no bounce (DESIGN's terminal restraint). */
+internal val EaseOutQuart = CubicBezierEasing(0.25f, 1f, 0.5f, 1f)
+internal const val REVEAL_MS = 450
+
+/** Linear 0→1 that resets and replays whenever [key] (the chart's data) changes. Ease at the call site. */
+@Composable
+internal fun rememberReveal(key: Any?): Float {
+    val reduced = reducedMotion()
+    val anim = remember(key) { Animatable(0f) }
+    LaunchedEffect(key, reduced) {
+        if (reduced) anim.snapTo(1f) else { anim.snapTo(0f); anim.animateTo(1f, tween(REVEAL_MS, easing = LinearEasing)) }
+    }
+    return anim.value
+}
+
+/**
+ * Per-bar eased reveal for a staggered sweep: bar [i] of [n] starts a little after its predecessor,
+ * each easing out over the rest of the window, so a row of bars sweeps out from the axis in sequence.
+ */
+internal fun staggerReveal(i: Int, n: Int, linear: Float): Float {
+    if (n <= 1) return EaseOutQuart.transform(linear.coerceIn(0f, 1f))
+    val spread = 0.35f // fraction of the timeline spent launching bars; the rest is each bar's own run
+    val start = spread * i / (n - 1)
+    return EaseOutQuart.transform(((linear - start) / (1f - spread)).coerceIn(0f, 1f))
+}
+// ------------------------------------------------------------------------------------------------
 
 /** Cumulative realized P&L as a filled line, with a dated x-axis + value gridlines (mock's hero chart). */
 @Composable
@@ -408,6 +447,7 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
     // Axis spans nice round ticks (not the raw data bounds) so every gridline label is a clean
     // integer-ish value instead of "4.81"; the gutter is sized to the widest of those labels.
     val axis = rememberAxis(series, money = true, zeroCentered = true, measurer = measurer)
+    val reveal = rememberReveal(series)
     HoverChart(
         modifier = canvasModifier,
         itemCount = series.size,
@@ -423,22 +463,26 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
             moveTo(f.px(0), f.py(series[0]))
             for (i in 1 until n) lineTo(f.px(i), f.py(series[i]))
         }
-        if (negColor == null) {
-            val base = if (fillToBottom) f.plotH else f.py(0f)
-            val fill = Path().apply { addPath(path); lineTo(f.px(n - 1), base); lineTo(f.px(0), base); close() }
-            drawPath(fill, color = line.copy(alpha = 0.16f))
-            drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
-        } else {
-            // Sign-colored equity curve: fill/line to the zero line, [line] above it, [negColor] below.
-            val zeroY = f.py(0f)
-            val fill = Path().apply { addPath(path); lineTo(f.px(n - 1), zeroY); lineTo(f.px(0), zeroY); close() }
-            clipRect(top = 0f, bottom = zeroY) {
+        // Sweep the curve in along its own time axis — axis + gridlines stay put, only the data draws on.
+        val revealX = f.leftPad + f.plotW * EaseOutQuart.transform(reveal)
+        clipRect(left = 0f, top = 0f, right = revealX, bottom = size.height) {
+            if (negColor == null) {
+                val base = if (fillToBottom) f.plotH else f.py(0f)
+                val fill = Path().apply { addPath(path); lineTo(f.px(n - 1), base); lineTo(f.px(0), base); close() }
                 drawPath(fill, color = line.copy(alpha = 0.16f))
                 drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
-            }
-            clipRect(top = zeroY, bottom = size.height) {
-                drawPath(fill, color = negColor.copy(alpha = 0.16f))
-                drawPath(path, color = negColor, style = Stroke(width = 2.dp.toPx()))
+            } else {
+                // Sign-colored equity curve: fill/line to the zero line, [line] above it, [negColor] below.
+                val zeroY = f.py(0f)
+                val fill = Path().apply { addPath(path); lineTo(f.px(n - 1), zeroY); lineTo(f.px(0), zeroY); close() }
+                clipRect(top = 0f, bottom = zeroY) {
+                    drawPath(fill, color = line.copy(alpha = 0.16f))
+                    drawPath(path, color = line, style = Stroke(width = 2.dp.toPx()))
+                }
+                clipRect(top = zeroY, bottom = size.height) {
+                    drawPath(fill, color = negColor.copy(alpha = 0.16f))
+                    drawPath(path, color = negColor, style = Stroke(width = 2.dp.toPx()))
+                }
             }
         }
 
@@ -465,6 +509,7 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
     val hoverTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) // brightens the hovered bar
     // Nice round tick values as the axis bounds — labels read "5", not "4.81" — and a gutter sized to them.
     val axis = rememberAxis(points.map { it.value }, money = diverging, zeroCentered = diverging, measurer = measurer)
+    val reveal = rememberReveal(points)
     GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
@@ -486,8 +531,9 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
                     val barW = minOf(slot * 0.6f, 48.dp.toPx())
                     fun barX(i: Int) = f.leftPad + slot * (i + 0.5f)
                     fun drawBar(i: Int, color: Color) {
-                        val top = f.py(maxOf(values[i], 0f))
-                        val bot = f.py(minOf(values[i], 0f))
+                        val v = values[i] * staggerReveal(i, n, reveal) // grow from the zero axis
+                        val top = f.py(maxOf(v, 0f))
+                        val bot = f.py(minOf(v, 0f))
                         drawRect(color, topLeft = Offset(barX(i) - barW / 2f, minOf(top, bot)), size = androidx.compose.ui.geometry.Size(barW, kotlin.math.abs(bot - top).coerceAtLeast(1f)))
                     }
                     for (i in 0 until n) {
@@ -528,6 +574,7 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
             return@SectionCard
         }
         val n = buckets.size
+        val reveal = rememberReveal(buckets)
         val rowH = 36.dp
         val axisH = 44.dp // tick labels + the x-axis caption below them
         val axisPxHit = with(LocalDensity.current) { axisH.toPx() }
@@ -573,11 +620,11 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
             val rowHpx = plotBottom / n
             val barH = rowHpx * 0.5f
             buckets.forEachIndexed { i, b ->
-                val v = values[i]
+                val v = values[i] * staggerReveal(i, n, reveal) // sweep out from the zero axis
                 val cy = rowHpx * (i + 0.5f)
                 val left = if (!performance) leftPad else minOf(zeroX, x(v))
                 val right = if (!performance) x(v) else maxOf(zeroX, x(v))
-                val c = if (!performance) colors.gain else if (v >= 0f) colors.gain else colors.loss
+                val c = if (!performance) colors.gain else if (values[i] >= 0f) colors.gain else colors.loss
                 val w = right - left
                 if (w >= 0.5f) drawRect(c, topLeft = Offset(left, cy - barH / 2f), size = androidx.compose.ui.geometry.Size(w, barH))
                 val lab = measurer.measure(b.label, labelStyle)
@@ -608,6 +655,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
     val n = series.firstOrNull()?.values?.size ?: 0
     // Nice round tick values as the axis bounds — labels read "200", not "173.91" — gutter sized to them.
     val axis = rememberAxis(series.flatMap { it.values.filterNotNull() }, money = true, zeroCentered = true, measurer = measurer)
+    val reveal = rememberReveal(series)
     GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
@@ -624,14 +672,17 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
                     drawValueAxis(f, money = true, measurer = measurer, grid = grid, labelColor = labelColor)
                     drawZeroLine(f, grid)
 
-                    for (sp in series) {
-                        val path = Path()
-                        var started = false
-                        for (i in 0 until n) {
-                            val v = sp.values[i]
-                            if (v == null) { started = false } else if (!started) { path.moveTo(f.px(i), f.py(v)); started = true } else path.lineTo(f.px(i), f.py(v))
+                    val revealX = f.leftPad + f.plotW * EaseOutQuart.transform(reveal)
+                    clipRect(left = 0f, top = 0f, right = revealX, bottom = size.height) {
+                        for (sp in series) {
+                            val path = Path()
+                            var started = false
+                            for (i in 0 until n) {
+                                val v = sp.values[i]
+                                if (v == null) { started = false } else if (!started) { path.moveTo(f.px(i), f.py(v)); started = true } else path.lineTo(f.px(i), f.py(v))
+                            }
+                            drawPath(path, sp.color, style = Stroke(width = 2.dp.toPx()))
                         }
-                        drawPath(path, sp.color, style = Stroke(width = 2.dp.toPx()))
                     }
 
                     if (hoverIdx in 0 until n) {
@@ -656,6 +707,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
 /** Half-donut gauge (Profit Factor, Largest gain/loss split) — foreground arc over a track. */
 @Composable
 internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Color, track: Color, modifier: Modifier = Modifier) {
+    val reveal = rememberReveal(fraction)
     GlassCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxHeight().padding(Space.lg), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())
@@ -666,8 +718,9 @@ internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Co
                         val stroke = 14.dp.toPx()
                         val inset = stroke / 2f
                         val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, (size.height - inset) * 2f)
+                        val swept = fraction.coerceIn(0f, 1f) * EaseOutQuart.transform(reveal)
                         drawArc(track, 180f, 180f, false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke))
-                        drawArc(fg, 180f, 180f * fraction.coerceIn(0f, 1f), false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke))
+                        drawArc(fg, 180f, 180f * swept, false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke))
                     }
                     Text(valueText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                 }

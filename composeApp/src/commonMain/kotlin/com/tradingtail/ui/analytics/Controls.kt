@@ -1,5 +1,7 @@
 package com.tradingtail.ui.analytics
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,9 +47,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.tradingtail.common.reducedMotion
 import com.tradingtail.ui.theme.LocalTradeColors
 import com.tradingtail.ui.theme.Radii
 import com.tradingtail.ui.theme.Space
+import kotlinx.coroutines.launch
 
 // ---------------------------------------------------------------------------------------------
 // Analytics controls: the responsive breakpoint, tab sheet, segmented control, and chip pills
@@ -150,6 +154,21 @@ internal fun TabSheet(
     val root = remember { arrayOfNulls<LayoutCoordinates>(1) }
     var head by remember { mutableStateOf(Rect.Zero) }
 
+    // The sheet outline glides between heads: animate the head's horizontal edges toward the newly
+    // selected head, so the tab reads as one moving marker instead of a hard cut. Snaps on first
+    // appearance (nothing to glide from) and under reduced motion; only the x-edges move (rows align).
+    val reduced = reducedMotion()
+    val animL = remember { Animatable(0f) }
+    val animR = remember { Animatable(0f) }
+    LaunchedEffect(head, reduced) {
+        if (head.width <= 1f) return@LaunchedEffect
+        if (animR.value <= 1f || reduced) { animL.snapTo(head.left); animR.snapTo(head.right) }
+        else {
+            launch { animL.animateTo(head.left, tween(220, easing = EaseOutQuart)) }
+            animR.animateTo(head.right, tween(220, easing = EaseOutQuart))
+        }
+    }
+
     // Four heads at desktop padding measured ~450dp against a 411dp phone, so "Drawdown" rendered as a
     // 13px sliver — a whole report the user had no way to know existed. Tightening the pad and dropping
     // the label a step fits all four at default scale; the strip still scrolls as a backstop for large
@@ -173,7 +192,9 @@ internal fun TabSheet(
         modifier
             .onGloballyPositioned { root[0] = it }
             .drawWithContent {
-                val sheet = if (head.width > 1f) sheetOutline(head, size, radius) else null
+                // Drawn from the animated edges once they're live; the raw head until then (first paint).
+                val hd = if (head.width > 1f && animR.value > 1f) Rect(animL.value, head.top, animR.value, head.bottom) else head
+                val sheet = if (hd.width > 1f) sheetOutline(hd, size, radius) else null
                 // Fill under the content, stroke over it: the edge then crosses the idle heads'
                 // bottoms, which is what tucks them behind the sheet.
                 sheet?.let { drawPath(it, tc.glass) }
