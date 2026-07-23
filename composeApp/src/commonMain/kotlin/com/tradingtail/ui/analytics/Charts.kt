@@ -42,6 +42,8 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -72,20 +74,30 @@ import kotlin.math.roundToInt
 // --- Draw-on reveal -----------------------------------------------------------------------------
 // The figures are the message and stay instant + exact (no gamified count-up); only their geometric
 // forms draw on — bars grow from the zero axis, lines sweep along their time axis, arcs fill. One
-// linear 0→1 progress per chart, replayed whenever the data changes (first load AND every date-filter
-// change), eased per-shape at the call site. Snaps to done under the OS "reduce motion" setting.
+// linear 0→1 progress per chart, played once when the chart first appears (eased per-shape at the call
+// site). Snaps to done under the OS "reduce motion" setting.
 
 /** ease-out-quart — confident deceleration, no bounce (DESIGN's terminal restraint). */
 internal val EaseOutQuart = CubicBezierEasing(0.25f, 1f, 0.5f, 1f)
 internal const val REVEAL_MS = 450
 
-/** Linear 0→1 that resets and replays whenever [key] (the chart's data) changes. Ease at the call site. */
+/**
+ * Linear 0→1 draw-on, played once when the chart enters composition. Ease at the call site.
+ *
+ * Deliberately NOT keyed on the chart's data: the sweep is an *arrival* cue (screen opened, report tab
+ * switched, view mode swapped — each a fresh subtree, so the [Animatable] is re-created and replays).
+ * When new data flows into a chart that's already on screen — scrubbing the date filter, tapping a
+ * 30/60/90 or year/month chip — the composable keeps its position, so this state survives and the new
+ * data simply snaps in at full draw. Re-sweeping every chart on every filter tap turned "arrival" into
+ * "the tool is reloading"; a standing chart shouldn't redraw itself just because its numbers changed.
+ */
 @Composable
-internal fun rememberReveal(key: Any?): Float {
+internal fun rememberReveal(): Float {
     val reduced = reducedMotion()
-    val anim = remember(key) { Animatable(0f) }
-    LaunchedEffect(key, reduced) {
-        if (reduced) anim.snapTo(1f) else { anim.snapTo(0f); anim.animateTo(1f, tween(REVEAL_MS, easing = LinearEasing)) }
+    val anim = remember { Animatable(0f) }
+    LaunchedEffect(reduced) {
+        if (reduced || anim.value >= 1f) anim.snapTo(1f)
+        else anim.animateTo(1f, tween(REVEAL_MS, easing = LinearEasing))
     }
     return anim.value
 }
@@ -101,6 +113,23 @@ internal fun staggerReveal(i: Int, n: Int, linear: Float): Float {
     return EaseOutQuart.transform(((linear - start) / (1f - spread)).coerceIn(0f, 1f))
 }
 // ------------------------------------------------------------------------------------------------
+
+/**
+ * One-line screen-reader summary for a bar chart, whose Canvas is otherwise a silent blob to a11y (the
+ * line/gauge/ring cards already speak their headline figure through a sibling Text; the bar charts have
+ * only their title). Names the title, the bar count, and the extreme categories *by their drawn value*.
+ * Category labels only — never a money string fabricated from the plotted Float, which would violate the
+ * app's "aggregate in Kotlin, never coerce money through numbers you didn't compute" rule; the exact
+ * figure for any bar is one hover away in its tooltip. [values] and [labels] are index-aligned.
+ */
+internal fun barChartSummary(title: String, labels: List<String>, values: List<Float>): String {
+    if (labels.isEmpty()) return title
+    val hi = values.indices.maxByOrNull { values[it] } ?: 0
+    val lo = values.indices.minByOrNull { values[it] } ?: 0
+    val extremes = if (hi == lo) "" else " Highest ${labels[hi]}, lowest ${labels[lo]}."
+    val bars = if (labels.size == 1) "1 bar" else "${labels.size} bars"
+    return "$title. $bars.$extremes"
+}
 
 /** Cumulative realized P&L as a filled line, with a dated x-axis + value gridlines (mock's hero chart). */
 @Composable
@@ -447,7 +476,7 @@ internal fun LineChartBody(series: List<Float>, dates: List<String>, line: Color
     // Axis spans nice round ticks (not the raw data bounds) so every gridline label is a clean
     // integer-ish value instead of "4.81"; the gutter is sized to the widest of those labels.
     val axis = rememberAxis(series, money = true, zeroCentered = true, measurer = measurer)
-    val reveal = rememberReveal(series)
+    val reveal = rememberReveal()
     HoverChart(
         modifier = canvasModifier,
         itemCount = series.size,
@@ -509,15 +538,16 @@ internal fun BarChartCard(title: String, points: List<DayPoint>, diverging: Bool
     val hoverTint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) // brightens the hovered bar
     // Nice round tick values as the axis bounds — labels read "5", not "4.81" — and a gutter sized to them.
     val axis = rememberAxis(points.map { it.value }, money = diverging, zeroCentered = diverging, measurer = measurer)
-    val reveal = rememberReveal(points)
+    val reveal = rememberReveal()
     GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = (if (fillHeight) Modifier.fillMaxHeight() else Modifier).padding(Space.lg)) {
             Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (points.isEmpty()) {
                 Text("No trades in this period.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
+                val summary = barChartSummary(title, points.map { it.label }, points.map { it.value })
                 HoverChart(
-                    modifier = chartModifier(fillHeight, 190.dp),
+                    modifier = chartModifier(fillHeight, 190.dp).semantics { contentDescription = summary },
                     itemCount = points.size,
                     indexAt = { pos, sz -> barIndexAt(pos, sz, points.size, axis.gutter) },
                     tooltip = { i -> BarTooltip(title, points[i], money = diverging) },
@@ -574,12 +604,17 @@ internal fun HBarChartCard(title: String, buckets: List<BucketPnl>, performance:
             return@SectionCard
         }
         val n = buckets.size
-        val reveal = rememberReveal(buckets)
+        val reveal = rememberReveal()
         val rowH = 36.dp
         val axisH = 44.dp // tick labels + the x-axis caption below them
         val axisPxHit = with(LocalDensity.current) { axisH.toPx() }
+        // Summarize by the same value the bars draw: summed P&L for performance, trade count otherwise.
+        val summary = barChartSummary(
+            title, buckets.map { it.label },
+            buckets.map { if (performance) it.pnl.toFloat() else it.trades.toFloat() },
+        )
         HoverChart(
-            modifier = Modifier.fillMaxWidth().height(rowH * n + axisH),
+            modifier = Modifier.fillMaxWidth().height(rowH * n + axisH).semantics { contentDescription = summary },
             itemCount = n,
             indexAt = { pos, sz -> hbarIndexAt(pos, sz, n, axisPxHit) },
             tooltip = { i -> BucketTooltip(buckets[i], performance) },
@@ -655,15 +690,16 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
     val n = series.firstOrNull()?.values?.size ?: 0
     // Nice round tick values as the axis bounds — labels read "200", not "173.91" — gutter sized to them.
     val axis = rememberAxis(series.flatMap { it.values.filterNotNull() }, money = true, zeroCentered = true, measurer = measurer)
-    val reveal = rememberReveal(series)
+    val reveal = rememberReveal()
     GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(Space.lg)) {
             Text(title, style = cardTitleStyle(), fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = Space.lg))
             if (n < 2) {
                 Text("Not enough data to create this chart.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
+                val summary = "$title. ${series.size} series over $n points."
                 HoverChart(
-                    modifier = Modifier.fillMaxWidth().height(260.dp),
+                    modifier = Modifier.fillMaxWidth().height(260.dp).semantics { contentDescription = summary },
                     itemCount = n,
                     indexAt = { pos, sz -> lineIndexAt(pos, sz, n, axis.gutter) },
                     tooltip = { i -> MultiLineTooltip(dates.getOrElse(i) { "" }, series, i) },
@@ -707,7 +743,7 @@ internal fun MultiLineChartCard(title: String, dates: List<String>, series: List
 /** Half-donut gauge (Profit Factor, Largest gain/loss split) — foreground arc over a track. */
 @Composable
 internal fun GaugeCard(title: String, valueText: String, fraction: Float, fg: Color, track: Color, modifier: Modifier = Modifier) {
-    val reveal = rememberReveal(fraction)
+    val reveal = rememberReveal()
     GlassCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxHeight().padding(Space.lg), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth())

@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -147,12 +148,12 @@ fun QuickTradeEntryScreen(
         }
     }
 
-    // A pushed full-screen surface (App.kt), so no Scaffold/TopAppBar: header, a scrolling field area,
-    // and a PINNED submit below it. Symbol autofocuses (capture in seconds), so the keyboard is up the
-    // moment the form opens — with the button inside the scroll area it started life behind the IME,
-    // and the primary action of the app's highest-traffic path was never visible on open. `imePadding`
-    // on the outer Column lifts header + fields + button together, so the CTA rides above the keyboard
-    // instead of under it.
+    // Header, a scrolling field area, and a PINNED submit below it. Symbol autofocuses (capture in
+    // seconds), so on a phone the keyboard is up the moment the form opens — with the button inside the
+    // scroll area it started life behind the IME, and the primary action of the app's highest-traffic
+    // path was never visible on open. `imePadding` on the outer Column lifts header + fields + button
+    // together, so the CTA rides above the keyboard instead of under it. Fills its container: a full
+    // window on a phone (App.kt), or a centered size-capped dialog surface on desktop.
     Column(
         modifier = modifier.fillMaxWidth().padding(Space.lg).imePadding(),
         verticalArrangement = Arrangement.spacedBy(Space.md),
@@ -274,6 +275,17 @@ private fun PriceTimeRow(
     }
 }
 
+/**
+ * Field colors with a visible idle border. M3's default unfocused outline is the `outline` token
+ * (#212E40 on dark), which all but disappears against the immersive aurora on a phone — the boxes read
+ * as floating labels with no edge. onSurfaceVariant (the same muted-ink the labels use) draws a border
+ * you can actually see at rest; focus still snaps to Signal Blue and errors to red (M3 defaults).
+ */
+@Composable
+private fun entryFieldColors() = OutlinedTextFieldDefaults.colors(
+    unfocusedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+)
+
 @Composable
 internal fun Field(
     value: String,
@@ -307,6 +319,7 @@ internal fun Field(
             onNext = { focusManager.moveFocus(FocusDirection.Next) },
             onDone = { onDone?.invoke() ?: focusManager.clearFocus() },
         ),
+        colors = entryFieldColors(),
         modifier = if (focusRequester != null) modifier.focusRequester(focusRequester) else modifier,
     )
 }
@@ -332,6 +345,7 @@ internal fun DateTimeField(value: String, onChange: (String) -> Unit, label: Str
         trailingIcon = {
             IconButton(onClick = { showDate = true }) { Icon(Icons.Filled.DateRange, contentDescription = "Pick date/time") }
         },
+        colors = entryFieldColors(),
         modifier = modifier,
     )
 

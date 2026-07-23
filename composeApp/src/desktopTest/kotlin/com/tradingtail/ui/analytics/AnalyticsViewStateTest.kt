@@ -20,6 +20,19 @@ class AnalyticsViewStateTest {
     )
 
     @Test
+    fun barChartSummaryNamesTheRightExtremeCategories() {
+        // The a11y summary must pair "highest"/"lowest" with the label at the max/min *value*, not
+        // the max/min label — a swap here silently mislabels the chart to a screen reader.
+        val s = barChartSummary("Perf", listOf("Jan", "Feb", "Mar"), listOf(-4f, 9f, 2f))
+        assertEquals("Perf. 3 bars. Highest Feb, lowest Jan.", s)
+        // Flat data drops the extremes clause rather than claim a false high/low; empty falls back.
+        assertEquals("Vol. 2 bars.", barChartSummary("Vol", listOf("a", "b"), listOf(5f, 5f)))
+        assertEquals("Empty", barChartSummary("Empty", emptyList(), emptyList()))
+        // Single-bar chart (one trading year/day) reads "1 bar", not "1 bars".
+        assertEquals("Solo. 1 bar.", barChartSummary("Solo", listOf("a"), listOf(5f)))
+    }
+
+    @Test
     fun cumulativeRunsInExitOrderAndSumsExactly() {
         // Fed out of order; must sort by exit and produce a running total, no float drift.
         val series = cumulativeSeries(listOf(trade("7.00", 30), trade("10.05", 10), trade("-4.05", 20)))

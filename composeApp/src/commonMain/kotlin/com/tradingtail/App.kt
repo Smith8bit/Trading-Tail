@@ -181,11 +181,10 @@ fun App(module: AppModule) {
                 return@CompositionLocalProvider
             }
             val anchor = detailAnchor
-            if (showEntry) {
-                // A pushed full-screen surface, per DESIGN.md's nav spec ("a full-screen overlay with a
-                // back arrow, not a tab"). It was a Dialog, whose dismiss-on-outside-tap destroyed all
-                // eight fields of hand-typed money with no confirmation — the app's worst bug, on its
-                // highest-traffic path. The form now owns back and guards a dirty form itself.
+            if (showEntry && !wide) {
+                // Phone: a pushed full-screen surface (DESIGN.md nav spec). A dialog + soft keyboard on a
+                // 360dp phone fights the IME; this branch owns the scroll and the CTA-above-keyboard
+                // handling. On desktop it's a dialog over the main screen instead — see below.
                 QuickTradeEntryScreen(
                     vm = quickVm,
                     onBack = { showEntry = false },
@@ -194,7 +193,7 @@ fun App(module: AppModule) {
                         screen = Screen.Journal
                         scope.launch { snackbar.showSnackbar("Trade recorded") }
                     },
-                    compact = !wide,
+                    compact = true,
                     // No Scaffold on this branch, so system-bar insets are this surface's own job.
                     modifier = Modifier.fillMaxSize().systemBarsPadding(),
                 )
@@ -228,6 +227,21 @@ fun App(module: AppModule) {
                 onNewTrade = { showEntry = true },
                 snackbar = snackbar,
             )
+            // Desktop: the entry form as a centered glass dialog OVER the still-visible (dimmed) main
+            // screen, not a push that replaces it — a full-window form reads as broken on a wide
+            // monitor. Reachable only when wide (narrow returned above) and MainScaffold is on screen
+            // (a full-screen detail push hides the FAB that sets this), so it always lands over the shell.
+            if (showEntry) {
+                QuickTradeEntryHost(
+                    vm = quickVm,
+                    onClose = { showEntry = false },
+                    onSaved = {
+                        showEntry = false
+                        screen = Screen.Journal
+                        scope.launch { snackbar.showSnackbar("Trade recorded") }
+                    },
+                )
+            }
             }
         }
 
@@ -415,6 +429,38 @@ private fun ImportPreviewHost(preview: ImportPreview, onDismiss: () -> Unit, onC
             ) {
                 ImportPreviewContent(preview = preview, onCancel = onDismiss, onConfirm = onConfirm, compact = compact)
             }
+        }
+    }
+}
+
+/**
+ * Desktop new-trade dialog: the Quick Entry form in the same width-capped glass surface as the import
+ * gate, floating over the still-visible (dimmed) main screen. Outside-click and Esc are DELIBERATELY
+ * inert — an accidental dismissal wiping eight hand-typed money fields was the app's worst bug, so the
+ * only exits are the form's own guarded Close (which confirms a dirty form) and a successful save.
+ */
+@Composable
+private fun QuickTradeEntryHost(vm: QuickTradeEntryViewModel, onClose: () -> Unit, onSaved: () -> Unit) {
+    Dialog(
+        onDismissRequest = {}, // never fires — back/Esc and outside-click are disabled below
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false,
+            dismissOnBackPress = false,
+        ),
+    ) {
+        val tc = LocalTradeColors.current
+        Surface(
+            // Same capped glass measure as ImportPreviewHost, so the two overlays read as one family.
+            modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth(0.92f).heightIn(max = 640.dp),
+            shape = RoundedCornerShape(Radii.xl),
+            color = tc.glass.copy(alpha = 0.94f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            border = BorderStroke(1.dp, tc.sheen),
+        ) {
+            // compact = false: the desktop form layout (side-by-side price/time). The surface bounds its
+            // height, so the form's weight(1f) field area scrolls and the Record button stays pinned.
+            QuickTradeEntryScreen(vm = vm, onBack = onClose, onSaved = onSaved, compact = false, modifier = Modifier.fillMaxWidth())
         }
     }
 }

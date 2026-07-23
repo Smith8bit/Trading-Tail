@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -96,6 +97,15 @@ fun ImportPreviewContent(
     }
 }
 
+/**
+ * Fixed widths for the Symbol and Side columns — fixed so the header and every [FillRow] align to the
+ * same edge (independent Rows can't share a weight). Scaled by the user's font scale so at a large
+ * system text size they grow with the text instead of clipping "SELL" or a 4-char symbol; header and
+ * rows read the same [LocalDensity] so they scale in lockstep and never drift apart.
+ */
+@Composable private fun symbolColWidth() = (64 * LocalDensity.current.fontScale).dp
+@Composable private fun sideColWidth() = (44 * LocalDensity.current.fontScale).dp
+
 /** The table's column header, aligned to the same widths/weights as [FillRow]. */
 @Composable
 private fun HeaderRow() {
@@ -106,8 +116,8 @@ private fun HeaderRow() {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Symbol", style = style, color = muted, modifier = Modifier.width(64.dp))
-        Text("Side", style = style, color = muted, modifier = Modifier.width(44.dp))
+        Text("Symbol", style = style, color = muted, modifier = Modifier.width(symbolColWidth()))
+        Text("Side", style = style, color = muted, modifier = Modifier.width(sideColWidth()))
         Text("Qty", style = style, color = muted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text("Price", style = style, color = muted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text("Fees", style = style, color = muted, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
@@ -159,9 +169,9 @@ private fun FillRow(f: ParsedFill) {
             style = mono.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(64.dp),
+            modifier = Modifier.width(symbolColWidth()),
         )
-        SideLabel(f.side, Modifier.width(44.dp))
+        SideLabel(f.side, Modifier.width(sideColWidth()))
         Text("${f.quantity}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text("$CURRENCY${f.price}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
         Text("$CURRENCY${f.fees}", style = mono, textAlign = TextAlign.End, modifier = Modifier.weight(1f))

@@ -174,7 +174,7 @@ private fun DurationRow(label: String, ms: Long?) = LabeledFigureRow(label, ms?.
 internal fun RatioRing(part: Int, total: Int) {
     val colors = LocalTradeColors.current
     val ring = if (total > 0) colors.loss else MaterialTheme.colorScheme.surfaceVariant
-    val reveal = rememberReveal(part to total)
+    val reveal = rememberReveal()
     Canvas(modifier = Modifier.size(72.dp)) {
         val stroke = 12.dp.toPx()
         drawArc(ring, -90f, 360f, false, style = Stroke(stroke))
@@ -250,7 +250,7 @@ private fun FigureRow(label: String, value: BigDecimal) = LabeledFigureRow(label
 @Composable
 internal fun BarRow(label: String, pnl: BigDecimal, max: BigDecimal, percent: Float? = null) {
     val colors = LocalTradeColors.current
-    val frac = fraction(pnl, max) * EaseOutQuart.transform(rememberReveal(pnl to max)) // bar grows from zero
+    val frac = fraction(pnl, max) * EaseOutQuart.transform(rememberReveal()) // bar grows from zero
     val barColor = when {
         pnl > ZERO -> colors.gain
         pnl < ZERO -> colors.loss

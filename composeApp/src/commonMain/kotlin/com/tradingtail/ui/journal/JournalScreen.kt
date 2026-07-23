@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -102,10 +104,16 @@ fun JournalScreen(
     // Grouped by trade day (entry/open day); trades arrive newest-first (DAO orders by exit DESC).
     val byDay = loaded.groupBy { bkkDate(it.entryTimestamp) }.toList()
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         val compact = maxWidth < 600.dp
+        // A journal is chronological (newest day first), so it stays a single column — a multi-column
+        // grid scrambles the reading order. On a wide desktop window the list would otherwise stretch
+        // every row across ~1100dp, floating the symbol and its P&L to opposite edges with dead gutter
+        // between; the cap holds rows at a comfortable reading width and centers them instead. Same
+        // move the Calendar month card uses. (widthIn.fillMaxWidth: cap when wide, fill when narrow.)
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(if (compact) Space.sm else Space.lg),
+            modifier = Modifier.widthIn(max = 760.dp).fillMaxWidth().fillMaxHeight()
+                .padding(if (compact) Space.sm else Space.lg),
             // Bottom clearance so the FAB (56dp + margin) and the Import pill stop landing on the last
             // row's figure — Scaffold's innerPadding covers the bars but never the FAB. The old 48dp of
             // TOP padding is gone with the pill that needed it (App.kt).
